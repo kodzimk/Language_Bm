@@ -12,6 +12,7 @@ typedef enum {
 	TRAP_STACK_UNDERFLOW,
 	TRAP_INVALID_INST,
 	TRAP_INVALID_ADDR,
+	TRAP_ILLEGAL_OPERAND,
 	TRAP_DIVISION_BY_ZERO,
 }TRAP;
 
@@ -28,6 +29,7 @@ typedef enum {
 	GT,
 	LS,
 	JMP_IF,
+	DUP,
 }INST_TYPE;
 
 typedef int Value;
@@ -56,6 +58,7 @@ typedef struct {
 #define MAKE_INST_EQ ((INST){.type = EQ})
 #define MAKE_INST_GT ((INST){.type = GT})
 #define MAKE_INST_LS ((INST){.type = LS})
+#define MAKE_INST_DUP(value) ((INST){.type = DUP ,.operand = (value)})
 #define MAKE_INST_JMP(value) ((INST){.type = JMP ,.operand = (value)})
 #define MAKE_INST_JMP_IF(value) ((INST){.type = JMP_IF ,.operand = (value)})
 #define ARRAY_SIZE(arr) (sizeof(arr)) / (sizeof(arr[0]))
@@ -75,6 +78,8 @@ const char* convert_trap_to_str(TRAP trap)
 	case TRAP_INVALID_ADDR:
 		return "TRAP_INVALID_ADDR";
 	case TRAP_DIVISION_BY_ZERO:
+		return "TRAP_DIVISION_BY_ZERO";
+	case TRAP_ILLEGAL_OPERAND:
 		return "TRAP_DIVISION_BY_ZERO";
 	default:
 		return "TRAP_OKAY";
@@ -185,6 +190,18 @@ TRAP vm_execute(VM* vm)
 		else
 			vm->sp += 1;
 		break;
+	case DUP:
+		if (vm->stack_size - inst.operand <= 0)
+			return TRAP_STACK_UNDERFLOW;
+
+		if (inst.operand < 0)
+		{
+			return TRAP_ILLEGAL_OPERAND;
+		}
+		vm->stack[vm->stack_size] = vm->stack[vm->stack_size - 1 - inst.operand];
+		vm->stack_size++;
+		vm->sp++;
+		break;
 	default:
 		return TRAP_INVALID_INST;
 		break;
@@ -211,15 +228,85 @@ void vm_debug(VM* vm)
 	}
 }
 
+void vm_save_to_file(INST* program, size_t program_size,const char *file_path)
+{
+	FILE* f = fopen(file_path, "wb");
+
+	if (f == NULL)
+	{
+		fprintf(stderr, "Could open a file %s", file_path);
+		exit(1);
+	}
+
+	if (fwrite(program,sizeof(program[0]),program_size,f) < 0)
+	{
+		fprintf(stderr, "Could open a file %s", file_path);
+		exit(1);
+	}
+
+	fclose(f);
+}
+
+void vm_load_from_file(VM* vm, const char* file_path)
+{
+	FILE* f = fopen(file_path, "rb");
+
+	if (f == NULL)
+	{
+		fprintf(stderr, "Could open a file %s", file_path);
+		exit(1);
+	}
+
+	vm->program_size = fread(vm->program, sizeof(INST), VM_PROGRAM_CAP, f);
+
+	if (fseek(f, 0, SEEK_SET) < 0)
+	{
+		fprintf(stderr, "Could seek a file %s", file_path);
+		exit(1);
+	}
+
+	assert("Program length overflow", ARRAY_SIZE(vm->program) < VM_PROGRAM_CAP);
+}
 
 int main()
 {
 	INST program[] = {
-	MAKE_INST_PUSH(2),
-	MAKE_INST_PUSH(1),
-	MAKE_INST_LS,
-	MAKE_INST_JMP_IF(0),
-	MAKE_INST_HALT,
+MAKE_INST_PUSH(0), // 1
+MAKE_INST_PUSH(1), // 0
+MAKE_INST_DUP(1),  // 2 
+MAKE_INST_DUP(1),  // 2 
+MAKE_INST_PLUS,
+MAKE_INST_JMP(2),
+MAKE_INST_HALT,    // 3
+	};
+	vm_save_to_file(program, ARRAY_SIZE(program), "file.ebasm");
+
+	vm_load_from_file(&vm, "file.ebasm");
+	for (int i = 0; !vm.halt && i < 69; ++i)
+	{
+		TRAP trap = vm_execute(&vm);
+		if (trap != TRAP_OKAY)
+		{
+			fprintf(stderr, "%s\n", convert_trap_to_str(trap));
+			exit(1);
+		}
+		vm_debug(&vm);
+	}
+	return 0;
+}
+
+int main2()
+{
+	// 1 0 2 4
+	// 
+	INST program[] = {
+	MAKE_INST_PUSH(0), // 1
+	MAKE_INST_PUSH(1), // 0
+	MAKE_INST_DUP(1),  // 2 
+	MAKE_INST_DUP(1),  // 2 
+	MAKE_INST_PLUS,
+	MAKE_INST_JMP(2),
+	MAKE_INST_HALT,    // 3
 	};
 
 	vm_copy_from_memory(&vm, program, ARRAY_SIZE(program));
