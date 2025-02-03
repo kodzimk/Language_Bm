@@ -2,9 +2,11 @@
 #include<stdint.h>
 #include<stdlib.h>
 #include<assert.h>
+#include <ctype.h>
 
 #define VM_STACK_CAP 128
 #define VM_PROGRAM_CAP 128
+#define VM_INST_SIZE 64
 
 typedef enum {
 	TRAP_OKAY = 0,
@@ -228,6 +230,8 @@ void vm_debug(VM* vm)
 	}
 }
 
+
+
 void vm_save_to_file(INST* program, size_t program_size,const char *file_path)
 {
 	FILE* f = fopen(file_path, "wb");
@@ -247,69 +251,62 @@ void vm_save_to_file(INST* program, size_t program_size,const char *file_path)
 	fclose(f);
 }
 
-void vm_load_from_file(VM* vm, const char* file_path)
+void vm_add_line(char* instracs,char *line,size_t index)
 {
-	FILE* f = fopen(file_path, "rb");
+	while (line != '\n' && index < VM_INST_SIZE)
+	{
+		instracs[index] = line[index];
+		index++;
+	}
+	instracs[index] = '\n';
+}
+
+const char* source =
+"push 0\n"
+"push 1\n";
+
+char right(char* line)
+{
+	return *line;
+}
+
+void from_source_to_vm(char* source_code, VM* vm)
+{
+
+	while (source_code != NULL && source_code != '\0')
+	{
+	
+	}
+}
+
+size_t vm_load_from_file(const char* file_path,char* instracs)
+{
+	FILE* f = fopen(file_path, "r");
 
 	if (f == NULL)
 	{
-		fprintf(stderr, "Could open a file %s", file_path);
+		fprintf(stderr, "Cant open a file:%s", file_path);
 		exit(1);
 	}
 
-	vm->program_size = fread(vm->program, sizeof(INST), VM_PROGRAM_CAP, f);
+	 char line[256];
 
-	if (fseek(f, 0, SEEK_SET) < 0)
-	{
-		fprintf(stderr, "Could seek a file %s", file_path);
-		exit(1);
-	}
+	 size_t size = 0;
+	 printf("%s", fgets(line, sizeof(line), f));
+            // Print each line to the standard output.
+			size += sizeof(line);
+			puts(instracs);
+        
 
-	assert("Program length overflow", ARRAY_SIZE(vm->program) < VM_PROGRAM_CAP);
+
+	fclose(f);
 }
+
 
 int main()
 {
-	INST program[] = {
-MAKE_INST_PUSH(0), // 1
-MAKE_INST_PUSH(1), // 0
-MAKE_INST_DUP(1),  // 2 
-MAKE_INST_DUP(1),  // 2 
-MAKE_INST_PLUS,
-MAKE_INST_JMP(2),
-MAKE_INST_HALT,    // 3
-	};
-	vm_save_to_file(program, ARRAY_SIZE(program), "file.ebasm");
+	from_source_to_vm(source, &vm);
 
-	vm_load_from_file(&vm, "file.ebasm");
-	for (int i = 0; !vm.halt && i < 69; ++i)
-	{
-		TRAP trap = vm_execute(&vm);
-		if (trap != TRAP_OKAY)
-		{
-			fprintf(stderr, "%s\n", convert_trap_to_str(trap));
-			exit(1);
-		}
-		vm_debug(&vm);
-	}
-	return 0;
-}
-
-int main2()
-{
-	// 1 0 2 4
-	// 
-	INST program[] = {
-	MAKE_INST_PUSH(0), // 1
-	MAKE_INST_PUSH(1), // 0
-	MAKE_INST_DUP(1),  // 2 
-	MAKE_INST_DUP(1),  // 2 
-	MAKE_INST_PLUS,
-	MAKE_INST_JMP(2),
-	MAKE_INST_HALT,    // 3
-	};
-
-	vm_copy_from_memory(&vm, program, ARRAY_SIZE(program));
 	for (int i = 0;!vm.halt && i < 69;++i)
 	{
 		TRAP trap = vm_execute(&vm);
