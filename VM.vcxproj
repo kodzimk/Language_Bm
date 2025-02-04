@@ -127,10 +127,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="src\main.c" />
+    <ClCompile Include="src\bm.c" />
+    <ClCompile Include="src\bmi.c" />
+    <ClCompile Include="src\ebasm.c" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="file.ebasm" />
+    <None Include="src\fib.ebasm" />
     <None Include="src\Makefile" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
