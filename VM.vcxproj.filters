@@ -24,6 +24,9 @@
     <ClCompile Include="src\bmi.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\test.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="src\Makefile" />
