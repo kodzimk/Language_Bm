@@ -1,5 +1,4 @@
-CC=gcc
-CFLAGS=-Wall -std=c99
 
-bm: bm.c
-	gcc -o bm bm.c
+
+test: bm.c
+	cc bm.c -o test

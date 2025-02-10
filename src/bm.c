@@ -104,6 +104,7 @@ typedef struct {
 #define MAKE_INST_JMP(addr)   {.type = INST_JMP, .operand = (addr)}
 #define MAKE_INST_DUP(addr)   {.type = INST_DUP, .operand = (addr)}
 #define MAKE_INST_HALT        {.type = INST_HALT, .operand = (addr)}
+#define MAKE_INST_NOP       {.type = INST_NOP}
 
 Err bm_execute_inst(Bm* bm)
 {
@@ -318,136 +319,169 @@ void bm_save_program_to_file(Inst* program, size_t program_size,
 
 Bm bm = { 0 };
 
-typedef struct {
-    size_t count;
-     char* data;
-} String_View;
-
-String_View cstr_as_sv(char* cstr)
+typedef struct string
 {
-    return (String_View) {
-        .count = strlen(cstr),
-         .data = cstr,
-    };
-}
+    size_t size;
+    char* buffer;
+}string_t;
 
-size_t sv_trim_left(String_View sv)
+
+string_t str_trim_left(string_t source)
 {
     size_t i = 0;
-    while (i < sv.count && isspace(sv.data[i])) {
+    while (i < source.size && isspace(source.buffer[i]))
+    {
         i += 1;
     }
 
+    return (string_t) { .size = source.size - i, .buffer = source.buffer + i };
+}
+
+size_t str_trim_right(char* source)
+{
+    size_t i = 0;
+    size_t end = strlen(source);
+    while (i < strlen(source) && isspace(source[end - i - 1]))
+    {
+        i += 1;
+    }
     return i;
 }
 
-String_View sv_trim_right(String_View sv)
+int sv_to_int(string_t* line)
 {
-    size_t i = 0;
-    while (i < sv.count && isspace(sv.data[sv.count - 1 - i])) {
-        i += 1;
+    int sum = 0;
+    for (size_t i = 0; i < line->size && isdigit(line->buffer[i]); ++i)
+    {
+        sum = sum * 10 + line->buffer[i] - '0';
     }
 
-    String_View result = {
-        .count = i + 1,
-        .data = sv.data + i,
-    };
-
-
-    return result;
+    return sum;
 }
-String_View sv_chop_by_delim(String_View* sv, char delim)
+
+string_t line_from_file(string_t* source, char deli)
 {
     size_t i = 0;
-    while (i < sv->count && sv->data[i] != delim)
+    while (source->size > i && source->buffer[i] != deli)
     {
-        i += 1;
+        i++;
     }
 
-    String_View line = {
-    .count = i,
-    .data =(char*)malloc(sizeof(char) * i + 1),
-    };
+    string_t line = { .size = i,.buffer = source->buffer };
 
-    size_t j = 0;
-    while (i > 0 && line != NULL)
+    if (source->size == i)
     {
-        line[j] = source[j];
-        j += 1;
-        i -= 1;
+        source->size -= i;
+        source->buffer += i;
+    }
+    else
+    {
+        source->size -= i + 1;
+        source->buffer += i + 1;
     }
 
-       sv->count -= i;
-       sv->data += i;
-    
     return line;
 }
 
-int sv_eq(String_View a, String_View b)
+string_t from_cstr_to_str(char* str)
 {
-    for (int i = 0, j = 0; i < b.count; i++, j += 2)
+    return (string_t) { .size = strlen(str), .buffer = str };
+}
+
+int cmp_str(string_t str, string_t str2)
+{
+    for (int i = 0; i < str.size; i++)
     {
-        if (a.data[j] != b.data[i])
+        if (str.buffer[i] != str2.buffer[i])
+        {
             return 0;
+        }
     }
     return 1;
 }
-int sv_to_int(String_View sv)
-{
-    int result = 0;
 
-    for (size_t i = 0; i < sv.count; ++i) {
-        if(isdigit(sv.data[i]))
-          result = result * 10 + sv.data[i] - '0';
+string_t line_before_blank(string_t* source)
+{
+    size_t i = 0;
+    while (source->size > i && !isspace(source->buffer[i]))
+    {
+        i++;
     }
 
-    return result;
+    string_t line = { .size = i,.buffer = source->buffer };
+
+    if (source->size == i)
+    {
+        source->size -= i;
+        source->buffer += i;
+    }
+    else
+    {
+        source->size -= i + 1;
+        source->buffer += i + 1;
+    }
+
+    return line;
 }
 
-Inst bm_translate_line(String_View line)
-{ 
-    String_View inst_name = sv_chop_by_delim(&line, ' ');
 
-    if (sv_eq(inst_name,cstr_as_sv("push"))) {
-        int operand = sv_to_int(line);
-        return (Inst) { .type = INST_PUSH, .operand = operand };
-    }
-    else if (sv_eq(inst_name, cstr_as_sv("dup"))) {
+Inst inst_from_line(string_t* line)
+{
+    string_t inst_name = line_before_blank(line);
 
+    if (cmp_str(inst_name, from_cstr_to_str("push")))
+    {
         int operand = sv_to_int(line);
-        return (Inst) { .type = INST_DUP, .operand = operand };
+        return (Inst) { .type = INST_PUSH, .operand = (operand) };
     }
-    else if (sv_eq(inst_name, cstr_as_sv("plus"))) {
+    else if (cmp_str(inst_name, from_cstr_to_str("min")))
+    {
+        int operand = sv_to_int(line);
+        return (Inst) { .type = INST_MINUS, .operand = (operand) };
+    }
+    else if (cmp_str(inst_name, from_cstr_to_str("plus")))
+    {
         return (Inst) { .type = INST_PLUS };
     }
-    else if (sv_eq(inst_name, cstr_as_sv("jmp"))) {
- 
+    else if (cmp_str(inst_name, from_cstr_to_str("jmp")))
+    {
         int operand = sv_to_int(line);
         return (Inst) { .type = INST_JMP, .operand = operand };
     }
-    else {
-        fprintf(stderr, "ERROR: unknown instruction %s",inst_name.data);
-        exit(1);
+    else if (cmp_str(inst_name, from_cstr_to_str("dup")))
+    {
+        int operand = sv_to_int(line);
+        return (Inst) { .type = INST_DUP, .operand = (operand) };
     }
+
+    return(Inst) { .type = INST_NOP };
 }
 
-size_t bm_translate_source(String_View source,
-    Inst* program, size_t program_capacity)
+
+size_t vm_translate_source(string_t source, Inst* program, size_t capacity)
 {
     size_t program_size = 0;
-    while (source.count > 0) {
-        assert(program_size < program_capacity);
-        String_View line = sv_chop_by_delim(&source, '\n');
-        for (size_t i = 0; i < line.count; i++)
+    while (source.size > 0)
+    {
+        assert(program_size < capacity);
+        string_t line = str_trim_left(line_from_file(&source, '\n'));
+        for (size_t i = 0; i < strlen(line.buffer); i++)
         {
-            printf("%c", line.data[i]);
+            printf("%c", line.buffer[i]);
         }
-        program[program_size++] = bm_translate_line(line);
+        printf("\n");
+        program[program_size] = inst_from_line(&line);
+        printf("OPERAND:%d", (int)program[program_size].operand);
+        printf("\n");
+        printf("TYPE:%s", inst_type_as_cstr(program[program_size].type));
+        printf("\n");
+        program_size++;
     }
+
     return program_size;
 }
 
-String_View slurp_file(const char* file_path)
+string_t slurp_file(const char* file_path)
 {
     FILE* f = fopen(file_path, "r");
     if (f == NULL) {
@@ -491,9 +525,9 @@ String_View slurp_file(const char* file_path)
 
     fclose(f);
 
-    return (String_View) {
-        .count = n,
-            .data = buffer,
+    return (string_t) {
+        .size = n,
+            .buffer = buffer,
     };
 }
 
@@ -508,16 +542,22 @@ int main(int argc, char** argv)
     const char* input_file_path = argv[1];
     const char* output_file_path = argv[2];
 
-    String_View source = slurp_file(input_file_path);
-    source.data += 2;
-    source.count -= 2;
+    string_t source = slurp_file(input_file_path);
 
-    bm.program_size = bm_translate_source(source,
+    bm.program_size = vm_translate_source(source,
         bm.program,
         BM_PROGRAM_CAPACITY);
 
-    printf("%s", inst_type_as_cstr(bm.program[1].type));
-    
+    for (int i = 0; i < 69; i++)
+    {
+        Err error = bm_execute_inst(&bm);
+        if (error != ERR_OK)
+        {
+            fprintf(stderr, "%s\n", err_as_cstr(error));
+            return -1;
+        }
+        bm_dump_stack(stdout, &bm);
+    }
 
     bm_save_program_to_file(bm.program, bm.program_size, output_file_path);
 
