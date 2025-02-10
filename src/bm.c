@@ -337,16 +337,6 @@ string_t str_trim_left(string_t source)
     return (string_t) { .size = source.size - i, .buffer = source.buffer + i };
 }
 
-size_t str_trim_right(char* source)
-{
-    size_t i = 0;
-    size_t end = strlen(source);
-    while (i < strlen(source) && isspace(source[end - i - 1]))
-    {
-        i += 1;
-    }
-    return i;
-}
 
 int sv_to_int(string_t* line)
 {
@@ -428,7 +418,7 @@ string_t line_before_blank(string_t* source)
 Inst inst_from_line(string_t* line)
 {
     string_t inst_name = line_before_blank(line);
-
+    *line = str_trim_left(*line);
     if (cmp_str(inst_name, from_cstr_to_str("push")))
     {
         int operand = sv_to_int(line);
