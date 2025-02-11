@@ -36,18 +36,14 @@ int main(int argc, char** argv)
         bm.program,
         BM_PROGRAM_CAPACITY);
 
-    for (int i = 0; i < 69; i++)
-    {
-        Err error = bm_execute_inst(&bm);
-        if (error != ERR_OK)
-        {
-            fprintf(stderr, "%s\n", err_as_cstr(error));
-            return -1;
-        }
-        bm_dump_stack(stdout, &bm);
-    }
+    free(source.buffer);
 
+    Err err = bm_execure_program(&bm, 69);
     bm_save_program_to_file(bm.program, bm.program_size, output_file_path);
+
+    if (err != ERR_OK) {
+        return 1;
+    }
 
     return 0;
 }

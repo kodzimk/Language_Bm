@@ -83,6 +83,8 @@ void bm_dump_stack(FILE* stream, const Bm* bm);
 void bm_load_program_from_file(Bm* bm, const char* file_path);
 void bm_save_program_to_file(Inst* program, size_t program_size, const char* file_path);
 void bm_debasm_file(Bm* bm, char const* file_path);
+Err bm_execute_inst(Bm* bm);
+Err bm_execure_program(Bm* bm, size_t limits);
 
 
 int sv_to_int(string_t* line);
@@ -262,6 +264,25 @@ Err bm_execute_inst(Bm* bm)
 
     default:
         return ERR_ILLEGAL_INST;
+    }
+
+    return ERR_OK;
+}
+
+Err bm_execure_program(Bm* bm, size_t limits) {
+    for (; limits != 0 && !bm->halt;)
+    {
+        Err error = bm_execute_inst(bm);
+        if (error != ERR_OK)
+        {
+            fprintf(stderr, "%s\n", err_as_cstr(error));
+            return error;
+        }
+        bm_dump_stack(stdout, bm);
+
+        if (limits > 0) {
+            limits -= 1;
+        }
     }
 
     return ERR_OK;
@@ -479,6 +500,7 @@ string_t chop_line_blank(string_t* source)
 }
 
 
+
 Inst get_inst_line(string_t* line)
 {
     string_t inst_name = chop_line_blank(line);
@@ -507,6 +529,11 @@ Inst get_inst_line(string_t* line)
     {
         return (Inst) { .type = INST_EQ };
     }
+    else if (cmp_str(inst_name, from_cstr_to_str("jmp")))
+    {
+        int operand = sv_to_int(line);
+        return (Inst) { .type = INST_JMP, .operand = operand };
+    }
     else if (cmp_str(inst_name, from_cstr_to_str("jmp_if")))
     {
         return (Inst) { .type = INST_JMP_IF };
@@ -518,11 +545,6 @@ Inst get_inst_line(string_t* line)
     else if (cmp_str(inst_name, from_cstr_to_str("plus")))
     {
         return (Inst) { .type = INST_PLUS };
-    }
-    else if (cmp_str(inst_name, from_cstr_to_str("jmp")))
-    {
-        int operand = sv_to_int(line);
-        return (Inst) { .type = INST_JMP, .operand = operand };
     }
     else if (cmp_str(inst_name, from_cstr_to_str("dup")))
     {
