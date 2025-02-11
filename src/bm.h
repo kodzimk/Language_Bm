@@ -1,3 +1,5 @@
+#ifndef _BM_H
+#define _BM_H
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,7 +12,6 @@
 #define ARRAY_SIZE(xs) (sizeof(xs) / sizeof((xs)[0]))
 #define BM_STACK_CAPACITY 1024
 #define BM_PROGRAM_CAPACITY 1024
-#define BM_EXECUTION_LIMIT 69
 
 typedef enum {
     ERR_OK = 0,
@@ -22,6 +23,82 @@ typedef enum {
     ERR_DIV_BY_ZERO,
 } Err;
 
+
+typedef int64_t Word;
+
+typedef enum {
+    INST_NOP = 0,
+    INST_PUSH,
+    INST_DUP,
+    INST_PLUS,
+    INST_MINUS,
+    INST_MULT,
+    INST_DIV,
+    INST_JMP,
+    INST_JMP_IF,
+    INST_EQ,
+    INST_HALT,
+    INST_PRINT_DEBUG,
+} Inst_Type;
+
+
+typedef struct {
+    Inst_Type type;
+    Word operand;
+} Inst;
+
+typedef struct {
+    Word stack[BM_STACK_CAPACITY];
+    Word stack_size;
+
+    Inst program[BM_PROGRAM_CAPACITY];
+    Word program_size;
+    Word ip;
+
+    int halt;
+} Bm;
+
+typedef struct string
+{
+    size_t size;
+    char* buffer;
+}string_t;
+
+Bm bm = { 0 };
+
+#define MAKE_INST_PUSH(value) {.type = INST_PUSH, .operand = (value)}
+#define MAKE_INST_PLUS        {.type = INST_PLUS}
+#define MAKE_INST_MINUS       {.type = INST_MINUS}
+#define MAKE_INST_MULT        {.type = INST_MULT}
+#define MAKE_INST_DIV         {.type = INST_DIV}
+#define MAKE_INST_JMP(addr)   {.type = INST_JMP, .operand = (addr)}
+#define MAKE_INST_DUP(addr)   {.type = INST_DUP, .operand = (addr)}
+#define MAKE_INST_HALT        {.type = INST_HALT, .operand = (addr)}
+#define MAKE_INST_NOP       {.type = INST_NOP}
+
+const char* err_as_cstr(Err err);
+const char* inst_type_as_cstr(Inst_Type type);
+Err bm_execute_inst(Bm* bm);
+void bm_dump_stack(FILE* stream, const Bm* bm);
+void bm_load_program_from_file(Bm* bm, const char* file_path);
+void bm_save_program_to_file(Inst* program, size_t program_size, const char* file_path);
+void bm_debasm_file(Bm* bm, char const* file_path);
+
+
+int sv_to_int(string_t* line);
+int cmp_str(string_t str, string_t str2);
+Inst get_inst_line(string_t* line);
+string_t str_trim_left(string_t source);
+string_t chop_line_blank(string_t* source);
+string_t line_from_file(string_t* source, char deli);
+string_t from_cstr_to_str(char* str);
+string_t slurp_file(const char* file_path);
+size_t vm_translate_source(string_t source, Inst* program, size_t capacity);
+
+#endif // _BM_H 
+
+#define BM_IMPLEMENTATION
+#ifdef BM_IMPLEMENTATION
 const char* err_as_cstr(Err err)
 {
     switch (err) {
@@ -44,23 +121,6 @@ const char* err_as_cstr(Err err)
     }
 }
 
-typedef int64_t Word;
-
-typedef enum {
-    INST_NOP = 0,
-    INST_PUSH,
-    INST_DUP,
-    INST_PLUS,
-    INST_MINUS,
-    INST_MULT,
-    INST_DIV,
-    INST_JMP,
-    INST_JMP_IF,
-    INST_EQ,
-    INST_HALT,
-    INST_PRINT_DEBUG,
-} Inst_Type;
-
 const char* inst_type_as_cstr(Inst_Type type)
 {
     switch (type) {
@@ -79,33 +139,6 @@ const char* inst_type_as_cstr(Inst_Type type)
     default: assert(0 && "inst_type_as_cstr: unreachable");
     }
 }
-
-typedef struct {
-    Inst_Type type;
-    Word operand;
-} Inst;
-
-typedef struct {
-    Word stack[BM_STACK_CAPACITY];
-    Word stack_size;
-
-    Inst program[BM_PROGRAM_CAPACITY];
-    Word program_size;
-    Word ip;
-
-    int halt;
-} Bm;
-
-#define MAKE_INST_PUSH(value) {.type = INST_PUSH, .operand = (value)}
-#define MAKE_INST_PLUS        {.type = INST_PLUS}
-#define MAKE_INST_MINUS       {.type = INST_MINUS}
-#define MAKE_INST_MULT        {.type = INST_MULT}
-#define MAKE_INST_DIV         {.type = INST_DIV}
-#define MAKE_INST_JMP(addr)   {.type = INST_JMP, .operand = (addr)}
-#define MAKE_INST_DUP(addr)   {.type = INST_DUP, .operand = (addr)}
-#define MAKE_INST_HALT        {.type = INST_HALT, .operand = (addr)}
-#define MAKE_INST_NOP       {.type = INST_NOP}
-
 Err bm_execute_inst(Bm* bm)
 {
     if (bm->ip < 0 || bm->ip >= bm->program_size) {
@@ -247,11 +280,52 @@ void bm_dump_stack(FILE* stream, const Bm* bm)
     }
 }
 
-void bm_load_program_from_memory(Bm* bm, Inst* program, size_t program_size)
+void bm_debasm_file(Bm* bm, char const* file_path)
 {
-    assert(program_size < BM_PROGRAM_CAPACITY);
-    memcpy(bm->program, program, sizeof(program[0]) * program_size);
-    bm->program_size = program_size;
+    bm_load_program_from_file(bm, file_path);
+
+    for (size_t i = 0; i < (size_t)bm->program_size; ++i)
+    {
+        switch (bm->program[i].type)
+        {
+        case INST_PUSH:
+            printf("push:%d\n", (int)bm->program[i].operand);
+            break;
+        case INST_DUP:
+            printf("dup:%d\n", (int)bm->program[i].operand);
+            break;
+        case INST_PLUS:
+            printf("plus\n");
+            break;
+        case INST_MINUS:
+            printf("minus\n");
+            break;
+        case INST_MULT:
+            printf("mult\n");
+            break;
+        case INST_DIV:
+            printf("div\n");
+            break;
+        case INST_JMP:
+            printf("jmp:%d\n", (int)bm->program[i].operand);
+            break;
+        case INST_JMP_IF:
+            printf("jmp_if\n");
+            break;
+        case INST_EQ:
+            printf("eq\n");
+            break;
+        case INST_HALT:
+            printf("halt\n");
+            break;
+        case INST_NOP:
+            printf("nop\n");
+            break;
+        case INST_PRINT_DEBUG:
+            printf("print\n");
+            break;
+        }
+    }
 }
 
 void bm_load_program_from_file(Bm* bm, const char* file_path)
@@ -317,15 +391,6 @@ void bm_save_program_to_file(Inst* program, size_t program_size,
     fclose(f);
 }
 
-Bm bm = { 0 };
-
-typedef struct string
-{
-    size_t size;
-    char* buffer;
-}string_t;
-
-
 string_t str_trim_left(string_t source)
 {
     size_t i = 0;
@@ -336,7 +401,6 @@ string_t str_trim_left(string_t source)
 
     return (string_t) { .size = source.size - i, .buffer = source.buffer + i };
 }
-
 
 int sv_to_int(string_t* line)
 {
@@ -380,7 +444,7 @@ string_t from_cstr_to_str(char* str)
 
 int cmp_str(string_t str, string_t str2)
 {
-    for (int i = 0; i < str.size; i++)
+    for (size_t i = 0; i < str.size; i++)
     {
         if (str.buffer[i] != str2.buffer[i])
         {
@@ -390,7 +454,7 @@ int cmp_str(string_t str, string_t str2)
     return 1;
 }
 
-string_t line_before_blank(string_t* source)
+string_t chop_line_blank(string_t* source)
 {
     size_t i = 0;
     while (source->size > i && !isspace(source->buffer[i]))
@@ -415,9 +479,9 @@ string_t line_before_blank(string_t* source)
 }
 
 
-Inst inst_from_line(string_t* line)
+Inst get_inst_line(string_t* line)
 {
-    string_t inst_name = line_before_blank(line);
+    string_t inst_name = chop_line_blank(line);
     *line = str_trim_left(*line);
     if (cmp_str(inst_name, from_cstr_to_str("push")))
     {
@@ -428,6 +492,28 @@ Inst inst_from_line(string_t* line)
     {
         int operand = sv_to_int(line);
         return (Inst) { .type = INST_MINUS, .operand = (operand) };
+    }
+    else if (cmp_str(inst_name, from_cstr_to_str("div")))
+    {
+        int operand = sv_to_int(line);
+        return (Inst) { .type = INST_DIV, .operand = (operand) };
+    }
+    else if (cmp_str(inst_name, from_cstr_to_str("mul")))
+    {
+        int operand = sv_to_int(line);
+        return (Inst) { .type = INST_MULT, .operand = (operand) };
+    }
+    else if (cmp_str(inst_name, from_cstr_to_str("eq")))
+    {
+        return (Inst) { .type = INST_EQ };
+    }
+    else if (cmp_str(inst_name, from_cstr_to_str("jmp_if")))
+    {
+        return (Inst) { .type = INST_JMP_IF };
+    }
+    else if (cmp_str(inst_name, from_cstr_to_str("hart")))
+    {
+        return (Inst) { .type = INST_HALT };
     }
     else if (cmp_str(inst_name, from_cstr_to_str("plus")))
     {
@@ -447,6 +533,17 @@ Inst inst_from_line(string_t* line)
     return(Inst) { .type = INST_NOP };
 }
 
+int check_empty_line(string_t line)
+{
+    for (size_t i = 0; i < line.size; ++i)
+    {
+        if (!isspace(line.buffer[i]))
+            return 1;
+    }
+
+    return 0;
+}
+
 
 size_t vm_translate_source(string_t source, Inst* program, size_t capacity)
 {
@@ -460,12 +557,14 @@ size_t vm_translate_source(string_t source, Inst* program, size_t capacity)
             printf("%c", line.buffer[i]);
         }
         printf("\n");
-        program[program_size] = inst_from_line(&line);
-        printf("OPERAND:%d", (int)program[program_size].operand);
-        printf("\n");
-        printf("TYPE:%s", inst_type_as_cstr(program[program_size].type));
-        printf("\n");
-        program_size++;
+        if (check_empty_line(line)) {
+            program[program_size] = get_inst_line(&line);
+            printf("OPERAND:%d", (int)program[program_size].operand);
+            printf("\n");
+            printf("TYPE:%s", inst_type_as_cstr(program[program_size].type));
+            printf("\n");
+            program_size++;
+        }
     }
 
     return program_size;
@@ -493,7 +592,7 @@ string_t slurp_file(const char* file_path)
         exit(1);
     }
 
-    char* buffer = malloc(m);
+    char* buffer = (char*)malloc(m);
     if (buffer == NULL) {
         fprintf(stderr, "ERROR: Could not allocate memory for file: %s\n",
             strerror(errno));
@@ -521,35 +620,5 @@ string_t slurp_file(const char* file_path)
     };
 }
 
-int main(int argc, char** argv)
-{
-    if (argc < 3) {
-        fprintf(stderr, "Usage: ./ebasm <input.ebasm> <output.bm>\n");
-        fprintf(stderr, "ERROR: expected input and output\n");
-        exit(1);
-    }
 
-    const char* input_file_path = argv[1];
-    const char* output_file_path = argv[2];
-
-    string_t source = slurp_file(input_file_path);
-
-    bm.program_size = vm_translate_source(source,
-        bm.program,
-        BM_PROGRAM_CAPACITY);
-
-    for (int i = 0; i < 69; i++)
-    {
-        Err error = bm_execute_inst(&bm);
-        if (error != ERR_OK)
-        {
-            fprintf(stderr, "%s\n", err_as_cstr(error));
-            return -1;
-        }
-        bm_dump_stack(stdout, &bm);
-    }
-
-    bm_save_program_to_file(bm.program, bm.program_size, output_file_path);
-
-    return 0;
-}
+#endif

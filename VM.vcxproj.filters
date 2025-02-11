@@ -18,13 +18,18 @@
     <ClCompile Include="src\test.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\bm.c">
+    <ClCompile Include="src\bm.h">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\basm.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\debasm.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="src\Makefile" />
-    <None Include="src\examples\fib.ebasm" />
-    <None Include="src\examples\123.ebasm" />
+    <None Include="Makefile" />
+    <None Include="examples\123.basm" />
   </ItemGroup>
 </Project>

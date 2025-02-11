@@ -127,13 +127,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="src\bm.c" />
+    <ClCompile Include="src\basm.c" />
+    <ClCompile Include="src\bm.h" />
+    <ClCompile Include="src\debasm.c" />
     <ClCompile Include="src\test.c" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="src\examples\123.ebasm" />
-    <None Include="src\examples\fib.ebasm" />
-    <None Include="src\Makefile" />
+    <None Include="examples\123.basm" />
+    <None Include="Makefile" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

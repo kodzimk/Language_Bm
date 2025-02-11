@@ -89,7 +89,7 @@ int cmp_str(string_t str, string_t str2)
 	printf("STR:%s\n",  str.buffer);
 	printf("STR2:%s\n", str2.buffer);*/
 
-	for (int i = 0; i < str.size; i++)
+	for (size_t i = 0; i < str.size; i++)
 	{
 		if (str.buffer[i] != str2.buffer[i])
 		{
@@ -166,4 +166,6 @@ int main()
 	return 0;
 }
 
+
+// ./test examples/123.basm fib.bm
 
