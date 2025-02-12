@@ -54,7 +54,8 @@ int main(int argc, char** argv)
 
     bm_load_program_from_file(&bm, input_file);
 
-    Err err = bm_execure_program(&bm, limit);
+    Err err = bm_execute_program(&bm, limit);
+
 
     if (err != ERR_OK) {
         return 1;

@@ -34,7 +34,7 @@ int main(int argc, char** argv)
 
     bm.program_size = vm_translate_source(source,
         bm.program,
-        BM_PROGRAM_CAPACITY);
+        BM_PROGRAM_CAPACITY,bm.func);
 
     free(source.buffer);
 
