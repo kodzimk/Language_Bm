@@ -1,6 +1,7 @@
-push 0
-push 1
-dup 1
-dup 1
-plus
-jmp 2
+	jmp label
+
+label:
+     push 1
+	 push 2
+	 plus 
+	 hart

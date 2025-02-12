@@ -38,12 +38,7 @@ int main(int argc, char** argv)
 
     free(source.buffer);
 
-    Err err = bm_execure_program(&bm, 69);
     bm_save_program_to_file(bm.program, bm.program_size, output_file_path);
-
-    if (err != ERR_OK) {
-        return 1;
-    }
 
     return 0;
 }

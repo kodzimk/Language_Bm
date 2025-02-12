@@ -270,7 +270,7 @@ Err bm_execute_inst(Bm* bm)
 }
 
 Err bm_execure_program(Bm* bm, size_t limits) {
-    for (; limits != 0 && !bm->halt;)
+    for (; limits != 0 && !bm->halt && bm->ip < bm->program_size;)
     {
         Err error = bm_execute_inst(bm);
         if (error != ERR_OK)
@@ -578,13 +578,9 @@ size_t vm_translate_source(string_t source, Inst* program, size_t capacity)
         {
             printf("%c", line.buffer[i]);
         }
-        printf("\n");
-        if (check_empty_line(line)) {
+        printf("\n\n");
+        if (check_empty_line(line) && *line.buffer != '#') {
             program[program_size] = get_inst_line(&line);
-            printf("OPERAND:%d", (int)program[program_size].operand);
-            printf("\n");
-            printf("TYPE:%s", inst_type_as_cstr(program[program_size].type));
-            printf("\n");
             program_size++;
         }
     }
