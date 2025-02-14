@@ -1,9 +1,4 @@
-	push 2
-	push 5
 	push 3
-
-label:
-     push 1
-	 push 2
-	 plus 
-	 ret
+	push 2
+	plus 
+	dup 1

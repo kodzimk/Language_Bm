@@ -667,10 +667,7 @@ size_t vm_translate_source(string_t source, Inst* program,size_t capacity, funct
         assert(program_size < capacity);
         string_t line = str_trim_left(line_from_file(&source, '\n'));
   
-        if (line.buffer[line.size - 2] == ':') {
-            vm_translate_funcs(&source, line_from_file(&line, ':'),func);
-        }
-        else if (check_empty_line(line)) {
+         if (check_empty_line(line)) {
             program[program_size] = get_inst_line(&line);
             program_size++;
         }
