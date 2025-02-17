@@ -1,11 +1,9 @@
-	# fibbonachi
-	push 1
-	jmp fib
-
-fib:
-	push 0
-	push 1 
-	dup 1
-	dup 1
-	plus
-	ret
+# First two Fibonacci numbers
+   push 0
+   push 1
+# The Loop
+loop:
+   dup 1
+   dup 1
+   plus
+   jmp loop   # Repeat
