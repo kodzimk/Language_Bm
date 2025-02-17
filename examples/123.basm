@@ -1,4 +1,11 @@
-	push 3
-	push 2
-	plus 
+	# fibbonachi
+	push 1
+	jmp fib
+
+fib:
+	push 0
+	push 1 
 	dup 1
+	dup 1
+	plus
+	ret

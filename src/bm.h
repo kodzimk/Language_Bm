@@ -58,13 +58,13 @@ typedef struct {
 
 typedef struct
 {
-    Word operand;
     string_t name;
 }Label;
 
 typedef struct {
     Label addr[BM_LABEL_CAPACITY];
     size_t size;
+    size_t ip;
 }Jmp_labels;
 
 Jmp_labels labels = { 0 };
@@ -82,10 +82,9 @@ typedef struct {
 
     Inst program[BM_PROGRAM_CAPACITY];
     Word program_size;
-    Word ip;
 
     function func[BM_LABEL_CAPACITY];
-    Word func_size;
+    size_t func_size;
 
     int halt;
 } Bm;
@@ -105,25 +104,27 @@ Bm bm = { 0 };
 
 const char* err_as_cstr(Err err);
 const char* inst_type_as_cstr(Inst_Type type);
-Err bm_execute_inst(Bm* bm);
 void bm_dump_stack(FILE* stream, const Bm* bm);
 void bm_load_program_from_file(Bm* bm, const char* file_path);
 void bm_save_program_to_file(Inst* program, size_t program_size, const char* file_path);
 void bm_debasm_file(Bm* bm, char const* file_path);
-Err bm_execute_inst(Bm* bm);
+Err bm_execute_inst(Bm* bm, Inst inst, Word* ip, size_t limits);
 Err bm_execute_program(Bm* bm, size_t limits);
 
 
 int sv_to_int(string_t* line);
 int cmp_str(string_t str, string_t str2);
-Inst get_inst_line(string_t* line);
+int check_empty_line(string_t line);
+int check_for_comment(string_t line);
+
+Inst get_inst_line(string_t* line, Jmp_labels* labels);
 string_t str_trim_left(string_t source);
 string_t chop_line_blank(string_t* source);
 string_t line_from_file(string_t* source, char deli);
 string_t from_cstr_to_str(char* str);
 string_t slurp_file(const char* file_path);
-size_t vm_translate_source(string_t source, Inst* program, size_t capacity, function* func);
-size_t vm_translate_funcs(string_t *source, string_t name, function* func);
+size_t vm_translate_source(string_t source, Inst* program, size_t capacity, function* func,size_t *func_size, Jmp_labels* labels);
+size_t vm_translate_funcs(string_t *source, string_t name, function* func,size_t func_size, Jmp_labels* labels);
 void get_jmp_address(Jmp_labels* labels, string_t* line);
 
 #endif // _BM_H 
@@ -174,17 +175,11 @@ const char* inst_type_as_cstr(Inst_Type type)
     default: assert(0 && "inst_type_as_cstr: unreachable");
     }
 }
-Err bm_execute_inst(Bm* bm)
+Err bm_execute_inst(Bm* bm,Inst inst, Word *ip,size_t limits)
 {
-    if (bm->ip < 0 || bm->ip >= bm->program_size) {
-        return ERR_ILLEGAL_INST_ACCESS;
-    }
-
-    Inst inst = bm->program[bm->ip];
-
     switch (inst.type) {
     case INST_NOP:
-        bm->ip += 1;
+        ip += 1;
         break;
 
     case INST_PUSH:
@@ -192,7 +187,7 @@ Err bm_execute_inst(Bm* bm)
             return ERR_STACK_OVERFLOW;
         }
         bm->stack[bm->stack_size++] = inst.operand;
-        bm->ip += 1;
+        ip += 1;
         break;
 
     case INST_PLUS:
@@ -200,8 +195,7 @@ Err bm_execute_inst(Bm* bm)
             return ERR_STACK_UNDERFLOW;
         }
         bm->stack[bm->stack_size - 2] += bm->stack[bm->stack_size - 1];
-        bm->stack_size -= 1;
-        bm->ip += 1;
+        ip += 1;
         break;
 
     case INST_MINUS:
@@ -210,7 +204,7 @@ Err bm_execute_inst(Bm* bm)
         }
         bm->stack[bm->stack_size - 2] -= bm->stack[bm->stack_size - 1];
         bm->stack_size -= 1;
-        bm->ip += 1;
+        ip += 1;
         break;
 
     case INST_MULT:
@@ -219,7 +213,7 @@ Err bm_execute_inst(Bm* bm)
         }
         bm->stack[bm->stack_size - 2] *= bm->stack[bm->stack_size - 1];
         bm->stack_size -= 1;
-        bm->ip += 1;
+        ip += 1;
         break;
 
     case INST_DIV:
@@ -233,11 +227,45 @@ Err bm_execute_inst(Bm* bm)
 
         bm->stack[bm->stack_size - 2] /= bm->stack[bm->stack_size - 1];
         bm->stack_size -= 1;
-        bm->ip += 1;
+        ip += 1;
         break;
 
     case INST_JMP:
-        bm->ip = inst.operand;
+        if (inst.operand != -1)
+        {
+            *ip = inst.operand;
+        }
+        else
+        {
+            printf("LABEL: %s", labels.addr[labels.ip].name);
+            for (size_t i = 0; i < bm->func_size; i++)
+            {
+                if (cmp_str(labels.addr[labels.ip].name,bm->func[i].name)) {
+                    Word j = 0;
+                    for (; limits != 0 && j < bm->func[i].size; ++j)
+                    {
+
+                        if (j < 0 || j >= bm->program_size) {
+                            return ERR_ILLEGAL_INST_ACCESS;
+                        }
+
+                        Err error = bm_execute_inst(bm, bm->func[i].inst[j], &j, limits);
+                        if (error != ERR_OK)
+                        {
+                            fprintf(stderr, "%s\n", err_as_cstr(error));
+                            return error;
+                        }
+                        bm_dump_stack(stdout, bm);
+
+                        if (limits > 0) {
+                            limits -= 1;
+                        }
+                    }
+                    break;
+                }
+            }
+            labels.ip += 1;
+        }
         break;
 
     case INST_HALT:
@@ -253,7 +281,7 @@ Err bm_execute_inst(Bm* bm)
 
         bm->stack[bm->stack_size - 2] = bm->stack[bm->stack_size - 1] == bm->stack[bm->stack_size - 2];
         bm->stack_size -= 1;
-        bm->ip += 1;
+        ip += 1;
         break;
 
     case INST_JMP_IF:
@@ -263,10 +291,10 @@ Err bm_execute_inst(Bm* bm)
 
         if (bm->stack[bm->stack_size - 1]) {
             bm->stack_size -= 1;
-            bm->ip = inst.operand;
+            ip += 1;
         }
         else {
-            bm->ip += 1;
+            ip += 1;
         }
         break;
 
@@ -276,7 +304,7 @@ Err bm_execute_inst(Bm* bm)
         }
         printf("%ld\n", bm->stack[bm->stack_size - 1]);
         bm->stack_size -= 1;
-        bm->ip += 1;
+        ip += 1;
         break;
 
     case INST_DUP:
@@ -294,7 +322,7 @@ Err bm_execute_inst(Bm* bm)
 
         bm->stack[bm->stack_size] = bm->stack[bm->stack_size - 1 - inst.operand];
         bm->stack_size += 1;
-        bm->ip += 1;
+        ip += 1;
         break;
 
     default:
@@ -305,9 +333,14 @@ Err bm_execute_inst(Bm* bm)
 }
 
 Err bm_execute_program(Bm* bm, size_t limits) {
-    for (; limits != 0 && !bm->halt && bm->ip < bm->program_size;)
+    Word ip = 0;
+    for (; limits != 0 && !bm->halt && ip < bm->program_size;++ip)
     {
-        Err error = bm_execute_inst(bm);
+        if (ip < 0 || ip >= bm->program_size) {
+            return ERR_ILLEGAL_INST_ACCESS;
+        }
+        printf("INDEX: %d\n", (int)ip);
+        Err error = bm_execute_inst(bm,bm->program[ip],&ip,limits);
         if (error != ERR_OK)
         {
             fprintf(stderr, "%s\n", err_as_cstr(error));
@@ -318,10 +351,6 @@ Err bm_execute_program(Bm* bm, size_t limits) {
         if (limits > 0) {
             limits -= 1;
         }
-    }
-    for (int i = 0; i < bm->func_size; ++i)
-    {
-        printf("%s\n", inst_type_as_cstr(bm->func[0].inst[i].type));
     }
 
     return ERR_OK;
@@ -480,25 +509,53 @@ int sv_to_int(string_t* line)
 }
 
 void get_jmp_address(Jmp_labels* labels, string_t* line) {
-    if (sv_to_int(line) == -1)
-    {
         labels->addr[labels->size++].name = line_from_file(line, '\n');
-    }
-    else
-    {
-        labels->addr[labels->size++].operand = sv_to_int(line);
-    }
 }
 
 string_t line_from_file(string_t* source, char deli)
 {
     size_t i = 0;
-    while (source->size > i && source->buffer[i] != deli)
+    while (source->size > i && source->buffer[i] == ' ')
+    {
+        i++;
+    }
+    if (source->size > 0 && source->buffer[i + 1] == '#')
+    {
+        while (source->size > i && source->buffer[i] != '\n')
+        {
+            i++;
+        }
+
+        string_t line = { .size = 1,.buffer = "#" };
+
+        if (source->size == i)
+        {
+            source->size -= i;
+            source->buffer += i;
+        }
+        else
+        {
+            source->size -= i + 1;
+            source->buffer += i + 1;
+        }
+
+        return line;
+    }
+
+    while (source->size > i && source->buffer[i] != deli && source->buffer[i] != '#')
     {
         i++;
     }
 
     string_t line = { .size = i,.buffer = source->buffer };
+
+    if (source->buffer[i] == '#')
+    {
+        while (source->size > i && source->buffer[i] != '\n')
+        {
+            i++;
+        }
+    }
 
     if (source->size == i)
     {
@@ -555,7 +612,7 @@ string_t chop_line_blank(string_t* source)
     return line;
 }
 
-Inst get_inst_line(string_t* line)
+Inst get_inst_line(string_t* line,Jmp_labels* labels)
 {
     string_t inst_name = chop_line_blank(line);
     *line = str_trim_left(*line);
@@ -577,6 +634,7 @@ Inst get_inst_line(string_t* line)
     else if (cmp_str(inst_name, from_cstr_to_str("mul")))
     {
         int operand = sv_to_int(line);
+
         return (Inst) { .type = INST_MULT, .operand = (operand) };
     }
     else if (cmp_str(inst_name, from_cstr_to_str("eq")))
@@ -589,20 +647,12 @@ Inst get_inst_line(string_t* line)
     }
     else if (cmp_str(inst_name, from_cstr_to_str("jmp")))
     {
-        get_jmp_address(&labels,line);
-        for (size_t i = 0; i < labels.size; i++)
+        int operand = sv_to_int(line);
+        if (operand == -1)
         {
-            if (labels.addr[i].name.size != 0)
-            {
-                printf("ADDR: %s\n", labels.addr[i].name.buffer);
-                printf("SIZE: %d\n", (int)labels.addr[i].name.size);
-            }
-            else
-            {
-                printf("ADDR: %d\n", (int)labels.addr[i].operand);
-            }
+            get_jmp_address(labels, line);
         }
-        return (Inst) { .type = INST_JMP, .operand = 0 };
+         return (Inst) { .type = INST_JMP, .operand = operand };
     }
     else if (cmp_str(inst_name, from_cstr_to_str("jmp_if")))
     {
@@ -636,39 +686,51 @@ int check_empty_line(string_t line)
     return 0;
 }
 
-size_t vm_translate_funcs(string_t *source,string_t name, function* func)
+int check_for_comment(string_t line) {
+    if (line.buffer[0] == '#' || line.size == 1)
+        return 0;
+
+    return 1;
+}
+
+size_t vm_translate_funcs(string_t *source,string_t name, function* func,size_t func_size, Jmp_labels* labels)
 {
     size_t func_program_size = 0;
-    func[func_program_size].name = name;
-   
+    func[func_size].name = name;
+    func[func_size].name.size -= 1;
 
+   
     while (func_program_size < BM_LABEL_SIZE_CAPACITY) {
         string_t func_line = str_trim_left(line_from_file(source, '\n'));
 
-        func->inst[func_program_size] = get_inst_line(&func_line);
-        func_program_size++;
+        func->inst[func_program_size] = get_inst_line(&func_line,labels);
         printf("%s\n", inst_type_as_cstr(func->inst[func_program_size].type));
+
         if (func->inst[func_program_size].type == INST_RET)
         {
             break;
-            printf("sdadsa");
         }
+        func_program_size++;
     }
-    bm.func_size++;
 
     return func_program_size;
 }
 
-size_t vm_translate_source(string_t source, Inst* program,size_t capacity, function* func)
+size_t vm_translate_source(string_t source, Inst* program,size_t capacity, function* func,size_t *func_size,Jmp_labels* labels)
 {
     size_t program_size = 0;
     while (source.size > 0)
     {
         assert(program_size < capacity);
         string_t line = str_trim_left(line_from_file(&source, '\n'));
-  
-         if (check_empty_line(line)) {
-            program[program_size] = get_inst_line(&line);
+         
+        if (line.buffer[line.size - 2] == ':')
+        {
+            func[*func_size].size = vm_translate_funcs(&source, line, func, *func_size,labels);
+            func_size++;
+        }
+        else if (check_empty_line(line) && check_for_comment(line)) {
+            program[program_size] = get_inst_line(&line,labels);
             program_size++;
         }
     }
@@ -725,6 +787,5 @@ string_t slurp_file(const char* file_path)
             .buffer = buffer,
     };
 }
-
 
 #endif
