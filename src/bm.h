@@ -42,7 +42,6 @@ typedef enum {
     INST_EQ,
     INST_HALT,
     INST_PRINT_DEBUG,
-    INST_RET,
 } Inst_Type;
 
 typedef struct string
@@ -115,23 +114,19 @@ Word table_label_find(const table_label* table, string_t name);
 void table_label_push(table_label* table, string_t name, Word addr);
 void table_label_unresolved_push(table_label* table, string_t name, Word addr);
 
-
 int sv_to_int(string_t* line);
 int cmp_str(string_t str, string_t str2);
-int check_empty_line(string_t line);
-int check_for_comment(string_t line);
 
 Inst get_inst_line(string_t* line, table_label* lt, Bm* bm);
 string_t str_trim_left(string_t source);
 string_t chop_line_blank(string_t* source);
-string_t line_from_file(string_t* source, char deli);
+string_t chop_line(string_t* source, char deli);
 string_t from_cstr_to_str(char* str);
 string_t slurp_file(const char* file_path);
 void vm_translate_source(string_t source, Bm* bm, table_label* lt);
 
 #endif // _BM_H 
 
-#define BM_IMPLEMENTATION
 #ifdef BM_IMPLEMENTATION
 const char* err_as_cstr(Err err)
 {
@@ -173,7 +168,6 @@ const char* inst_type_as_cstr(Inst_Type type)
     case INST_EQ:          return "INST_EQ";
     case INST_PRINT_DEBUG: return "INST_PRINT_DEBUG";
     case INST_DUP:         return "INST_DUP";
-    case INST_RET:         return "INST_RET";
     default: assert(0 && "inst_type_as_cstr: unreachable");
     }
 }
@@ -353,9 +347,6 @@ void bm_debasm_file(Bm* bm, char const* file_path)
         case INST_PLUS:
             printf("plus\n");
             break;
-        case INST_RET:
-            printf("ret\n");
-            break;
         case INST_MINUS:
             printf("minus\n");
             break;
@@ -505,12 +496,11 @@ void table_label_unresolved_push(table_label* table, string_t name, Word addr) {
     table->unresolved_jmp[table->unresolved_jmp_size++] = (Unresolved_jmp){ .name = name,.addr = addr };
 }
 
-
 void table_label_push(table_label* table, string_t name, Word addr) {
     table->label[table->label_size++] = (Label){ .name = name , .addr = addr };
 }
 
-string_t line_from_file(string_t* source, char deli)
+string_t chop_line(string_t* source, char deli)
 {
     size_t i = 0;
 
@@ -602,14 +592,9 @@ Inst get_inst_line(string_t* line,table_label  *lt,Bm *bm)
     {
         return (Inst) { .type = INST_EQ };
     }
-    else if (cmp_str(inst_name, from_cstr_to_str("ret")))
-    {
-        return (Inst) { .type = INST_RET };
-    }
     else if (cmp_str(inst_name, from_cstr_to_str("jmp")))
-    {
-       
-        string_t operand = str_trim_right(line_from_file(line, '\n'));
+    {    
+        string_t operand = str_trim_right(chop_line(line, '\n'));
         table_label_unresolved_push(lt, operand, bm->program_size);
 
          return (Inst) { .type = INST_JMP, .operand = -1 };
@@ -635,25 +620,14 @@ Inst get_inst_line(string_t* line,table_label  *lt,Bm *bm)
     return(Inst) { .type = INST_NOP };
 }
 
-int check_empty_line(string_t line)
-{
-    for (size_t i = 0; i < line.size; ++i)
-    {
-        if (!isspace(line.buffer[i]))
-            return 1;
-    }
-
-    return 0;
-}
-
 void vm_translate_source(string_t source,Bm *bm,table_label* lt)
 {
     while (source.size > 0)
     {
         assert(bm->program_size < BM_PROGRAM_CAPACITY);
-        string_t line = str_trim_left(line_from_file(&source, '\n'));
+        string_t line = str_trim_left(chop_line(&source, '\n'));
         
-         if (check_empty_line(line) && *line.buffer != '#') {
+         if (line.size > 0 && *line.buffer != '#' && !isspace(*line.buffer)) {
 
              if (line.size > 0 && line.buffer[line.size - 2] == ':')
              {
