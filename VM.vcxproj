@@ -131,6 +131,7 @@
     <ClCompile Include="src\bm.h" />
     <ClCompile Include="src\bme.c" />
     <ClCompile Include="src\debasm.c" />
+    <ClCompile Include="src\main.c" />
     <ClCompile Include="src\test.c" />
   </ItemGroup>
   <ItemGroup>
