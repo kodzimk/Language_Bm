@@ -1,9 +1,12 @@
-   push 0
+   # fibonachi
+   push 0 #pushing
    push 1
    jmp loop
 
+   # loop 
 loop:
    dup 1
    dup 1
    plus
    jmp loop
+   # end

@@ -646,13 +646,6 @@ int check_empty_line(string_t line)
     return 0;
 }
 
-int check_for_comment(string_t line) {
-    if (line.buffer[0] == '#' || line.size == 1)
-        return 0;
-
-    return 1;
-}
-
 void vm_translate_source(string_t source,Bm *bm,table_label* lt)
 {
     while (source.size > 0)
@@ -668,7 +661,7 @@ void vm_translate_source(string_t source,Bm *bm,table_label* lt)
                      .size = line.size - 2,
                      .buffer = line.buffer,
                  };
-             
+            
                  table_label_push(lt, name, bm->program_size);
              }
              else
@@ -677,13 +670,12 @@ void vm_translate_source(string_t source,Bm *bm,table_label* lt)
              }
          }
     }
-                 for (size_t i = 0; i < lt->unresolved_jmp_size; i++)
-                 {
-                     Word addr = table_label_find(lt, lt->unresolved_jmp[i].name);
-                     printf("ADDR_JMP: %d\n", (int)addr);
-                     printf("ADDR_INST: %d\n", (int)lt->unresolved_jmp[i].addr - 1);
-                     bm->program[lt->unresolved_jmp[i].addr - 1].operand = addr;
-                 }
+
+    for (size_t i = 0; i < lt->unresolved_jmp_size; i++)
+    {
+        Word addr = table_label_find(lt, lt->unresolved_jmp[i].name);
+        bm->program[lt->unresolved_jmp[i].addr - 1].operand = addr;
+    }
 }
 
 string_t slurp_file(const char* file_path)
