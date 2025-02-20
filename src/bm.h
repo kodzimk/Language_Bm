@@ -127,6 +127,8 @@ void vm_translate_source(string_t source, Bm* bm, table_label* lt);
 
 #endif // _BM_H 
 
+#define BM_IMPLEMENTATION
+
 #ifdef BM_IMPLEMENTATION
 const char* err_as_cstr(Err err)
 {
