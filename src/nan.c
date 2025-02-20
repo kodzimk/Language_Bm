@@ -31,15 +31,15 @@ double mk_inf(void)
 	return *(double*)&y;
 }
 
-inline uint64_t set_type(double x, uint64_t type)
+double set_type(double x, uint64_t type)
 {
 	uint64_t y = *(uint64_t*)&x;
-	y &= (((TYPE_MASK >> 48LL) & type) << 48LL);
+	y = (y &(~TYPE_MASK)) | (((TYPE_MASK >> 48LL) & type) << 48LL);
 
 	return *(double*)&y;
 } 
 
-inline uint64_t get_type(double x)
+ uint64_t get_type(double x)
 {
 	uint64_t y = (*(uint64_t*)&x);
 	return (y & TYPE_MASK) >> 48LL;
@@ -48,43 +48,94 @@ inline uint64_t get_type(double x)
 double set_value(double x, uint64_t value)
 {
 	uint64_t y = *(uint64_t*)&x;
-	y &= (value & VALUE_MASK);
+	y = (y & (~VALUE_MASK)) | (value & VALUE_MASK);
 	return *(double*)&y;
 }
 
-inline uint64_t get_value(double x)
+ uint64_t get_value(double x)
 {
 	uint64_t y = (*(uint64_t*)&x);
 	return (y & VALUE_MASK);
 }
 
-inline static int is_nan(double x)
+ static int is_nan(double x)
 {
 	uint64_t y = (*(uint64_t*)&x);
 	return ((y & EXP_MASK) == EXP_MASK) && ((y & FRACTION_MASK) != 0);
 }
 
-inline int is_inf(double x)
+ int is_inf(double x)
 {
 	uint64_t y = (*(uint64_t*)&x);
 	return ((y & EXP_MASK) == EXP_MASK) && ((y & FRACTION_MASK) == 0);
 }
 
-#define INSPECT_VALUE(type,value,label)        \
-         {                                \
-             type name = (value);        \
-             printf("%s\n    ",label);     \
-             print_bits((uint8_t*)&name,sizeof(name)); \
-             printf("    is_nan = %d\n",is_nan(name)); \
-             printf("    isnan = %d\n",isnan(name)); \
-         }     
+#define INTEGER_TYPE 1
+#define POINTER_TYPE 2
+
+int is_double(double x)
+{
+	return !isnan(x);
+}
+
+int is_int(double x)
+{
+	return isnan(x) && get_type(x) == TYPE(INTEGER_TYPE);
+}
+
+int is_pointer(double x)
+{
+	return isnan(x) && get_type(x) == TYPE(POINTER_TYPE);
+}
+
+double as_double(double x)
+{
+	return x;
+}
+
+uint64_t as_int(double x)
+{
+	return get_value(x);
+}
+
+void* as_pointer(double x)
+{
+	return (void*)get_value(x);
+}
+
+double box_double(double x)
+{
+	return x;
+}
+
+double box_integer(uint64_t x)
+{
+	return set_value(set_type(mk_inf(), TYPE(INTEGER_TYPE)), x);
+}
+ 
+double box_pointer(void* x)
+{
+	return set_value(set_type(mk_inf(), TYPE(POINTER_TYPE)), (uint64_t) x);
+}
+
+#define VALUES_CAPACITY 256
+
+double values[VALUES_CAPACITY];
+size_t values_size = 0;
 
 int main(void)
 {
-	INSPECT_VALUE(double,3.141592653569, "3.141592653569");
-	INSPECT_VALUE(double, nan("0"), "nan(0)");
-	INSPECT_VALUE(double, nan("10"), "nan(10)");
-	//INSPECT_VALUE(uint64_t, NAN_MASK);
+	double x = 3498.34923;
 
+
+	values[values_size++] = box_double(3.14159265359);
+	values[values_size++] = box_integer(12345678LL);
+	values[values_size++] = box_pointer(&x);
+
+	for (size_t i = 0; i < values_size; i++) {
+		printf("%d: is_double == %d\n", i, is_double(values[i]));
+		printf("%d: is_integer == %d\n", i, is_int(values[i]));
+		printf("%d: is_pointer == %d\n", i, is_pointer(values[i]));
+	}
 	return 0;
 }
