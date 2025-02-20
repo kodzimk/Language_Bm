@@ -129,13 +129,14 @@ int main(void)
 
 
 	values[values_size++] = box_double(3.14159265359);
-	values[values_size++] = box_integer(12345678LL);
+	values[values_size++] = box_integer(12345LL);
 	values[values_size++] = box_pointer(&x);
 
 	for (size_t i = 0; i < values_size; i++) {
 		printf("%d: is_double == %d\n", i, is_double(values[i]));
 		printf("%d: is_integer == %d\n", i, is_int(values[i]));
 		printf("%d: is_pointer == %d\n", i, is_pointer(values[i]));
+		printf("VALUE: %f\n", values[i]);
 	}
 	return 0;
 }
