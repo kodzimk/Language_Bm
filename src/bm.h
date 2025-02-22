@@ -8,12 +8,13 @@
 #include <errno.h>
 #include <ctype.h>
 
-
 #define ARRAY_SIZE(xs) (sizeof(xs) / sizeof((xs)[0]))
 #define BM_STACK_CAPACITY 1024
 #define BM_PROGRAM_CAPACITY 1024
 #define BM_LABEL_CAPACITY 8
 #define BM_LABEL_SIZE_CAPACITY 32
+
+typedef uint64_t Inst_Addr;
 
 typedef enum {
     ERR_OK = 0,
@@ -25,9 +26,6 @@ typedef enum {
     ERR_DIV_BY_ZERO,
     ERR_ILLEGAL_OPERAND_TYPE,
 } Err;
-
-
-typedef int64_t Word;
 
 typedef enum {
     INST_NOP = 0,
@@ -50,20 +48,15 @@ typedef struct string
     char* buffer;
 }string_t;
 
-typedef struct {
-    Inst_Type type;
-    Word operand;
-} Inst;
-
 typedef struct
 {
-    Word addr;
+    Inst_Addr addr;
     string_t name;
 }Label;
 
 typedef struct
 {
-    Word addr;
+    Inst_Addr addr;
     string_t name;
 }Unresolved_jmp;
 
@@ -74,16 +67,29 @@ typedef struct {
     Unresolved_jmp unresolved_jmp[BM_LABEL_CAPACITY];
     size_t unresolved_jmp_size;
 }table_label;
-
 table_label table = { 0 };
+
+typedef union {
+    uint64_t as_u64;
+    int64_t as_i64;
+    double as_f64;
+    void* as_ptr;
+}Word;
+
+static_assert(sizeof(Word) == 8, "The Bm word is expected to be 64 bits");
+
+typedef struct {
+    Inst_Type type;
+    Word operand;
+} Inst;
 
 typedef struct {
     Word stack[BM_STACK_CAPACITY];
-    Word stack_size;
+    Inst_Addr stack_size;
 
     Inst program[BM_PROGRAM_CAPACITY];
-    Word program_size;
-    Word ip;
+    Inst_Addr program_size;
+    Inst_Addr ip;
 
     int halt;
 } Bm;
@@ -110,9 +116,9 @@ void bm_debasm_file(Bm* bm, char const* file_path);
 Err bm_execute_inst(Bm* bm);
 Err bm_execute_program(Bm* bm, int limits);
 
-Word table_label_find(const table_label* table, string_t name);
-void table_label_push(table_label* table, string_t name, Word addr);
-void table_label_unresolved_push(table_label* table, string_t name, Word addr);
+Inst_Addr table_label_find(const table_label* table, string_t name);
+void table_label_push(table_label* table, string_t name, Inst_Addr addr);
+void table_label_unresolved_push(table_label* table, string_t name, Inst_Addr addr);
 
 int sv_to_int(string_t* line);
 int cmp_str(string_t str, string_t str2);
@@ -154,7 +160,6 @@ const char* err_as_cstr(Err err)
         assert(0 && "err_as_cstr: Unreachable");
     }
 }
-
 const char* inst_type_as_cstr(Inst_Type type)
 {
     switch (type) {
@@ -193,7 +198,7 @@ Err bm_execute_program(Bm* bm, int limit)
 
 Err bm_execute_inst(Bm* bm)
 {
-    if (bm->ip < 0 || bm->ip >= bm->program_size) {
+    if (bm->ip >= bm->program_size) {
         return ERR_ILLEGAL_INST_ACCESS;
     }
 
@@ -216,7 +221,7 @@ Err bm_execute_inst(Bm* bm)
         if (bm->stack_size < 2) {
             return ERR_STACK_UNDERFLOW;
         }
-        bm->stack[bm->stack_size - 2] += bm->stack[bm->stack_size - 1];
+        bm->stack[bm->stack_size - 2].as_u64 += bm->stack[bm->stack_size - 1].as_u64;
         bm->stack_size -= 1;
         bm->ip += 1;
         break;
@@ -225,7 +230,7 @@ Err bm_execute_inst(Bm* bm)
         if (bm->stack_size < 2) {
             return ERR_STACK_UNDERFLOW;
         }
-        bm->stack[bm->stack_size - 2] -= bm->stack[bm->stack_size - 1];
+        bm->stack[bm->stack_size - 2].as_u64 -= bm->stack[bm->stack_size - 1].as_u64;
         bm->stack_size -= 1;
         bm->ip += 1;
         break;
@@ -234,7 +239,7 @@ Err bm_execute_inst(Bm* bm)
         if (bm->stack_size < 2) {
             return ERR_STACK_UNDERFLOW;
         }
-        bm->stack[bm->stack_size - 2] *= bm->stack[bm->stack_size - 1];
+        bm->stack[bm->stack_size - 2].as_u64 *= bm->stack[bm->stack_size - 1].as_u64;
         bm->stack_size -= 1;
         bm->ip += 1;
         break;
@@ -244,17 +249,17 @@ Err bm_execute_inst(Bm* bm)
             return ERR_STACK_UNDERFLOW;
         }
 
-        if (bm->stack[bm->stack_size - 1] == 0) {
+        if (bm->stack[bm->stack_size - 1].as_u64 == 0) {
             return ERR_DIV_BY_ZERO;
         }
 
-        bm->stack[bm->stack_size - 2] /= bm->stack[bm->stack_size - 1];
+        bm->stack[bm->stack_size - 2].as_u64 /= bm->stack[bm->stack_size - 1].as_u64;
         bm->stack_size -= 1;
         bm->ip += 1;
         break;
 
     case INST_JMP:
-        bm->ip = inst.operand;
+        bm->ip = inst.operand.as_u64;
         break;
 
     case INST_HALT:
@@ -266,7 +271,7 @@ Err bm_execute_inst(Bm* bm)
             return ERR_STACK_UNDERFLOW;
         }
 
-        bm->stack[bm->stack_size - 2] = bm->stack[bm->stack_size - 1] == bm->stack[bm->stack_size - 2];
+        bm->stack[bm->stack_size - 2].as_u64 = bm->stack[bm->stack_size - 1].as_u64 == bm->stack[bm->stack_size - 2].as_u64;
         bm->stack_size -= 1;
         bm->ip += 1;
         break;
@@ -276,9 +281,9 @@ Err bm_execute_inst(Bm* bm)
             return ERR_STACK_UNDERFLOW;
         }
 
-        if (bm->stack[bm->stack_size - 1]) {
+        if (bm->stack[bm->stack_size - 1].as_u64) {
             bm->stack_size -= 1;
-            bm->ip = inst.operand;
+            bm->ip = inst.operand.as_u64;
         }
         else {
             bm->ip += 1;
@@ -289,7 +294,7 @@ Err bm_execute_inst(Bm* bm)
         if (bm->stack_size < 1) {
             return ERR_STACK_UNDERFLOW;
         }
-        printf("%ld\n", bm->stack[bm->stack_size - 1]);
+        printf("%llu\n", bm->stack[bm->stack_size - 1]);
         bm->stack_size -= 1;
         bm->ip += 1;
         break;
@@ -299,15 +304,11 @@ Err bm_execute_inst(Bm* bm)
             return ERR_STACK_OVERFLOW;
         }
 
-        if (bm->stack_size - inst.operand <= 0) {
+        if (bm->stack_size - inst.operand.as_u64 <= 0) {
             return ERR_STACK_UNDERFLOW;
         }
 
-        if (inst.operand < 0) {
-            return ERR_ILLEGAL_OPERAND;
-        }
-
-        bm->stack[bm->stack_size] = bm->stack[bm->stack_size - 1 - inst.operand];
+        bm->stack[bm->stack_size].as_u64 = bm->stack[bm->stack_size - 1 - inst.operand.as_u64].as_u64;
         bm->stack_size += 1;
         bm->ip += 1;
         break;
@@ -323,8 +324,12 @@ void bm_dump_stack(FILE* stream, const Bm* bm)
 {
     fprintf(stream, "Stack:\n");
     if (bm->stack_size > 0) {
-        for (Word i = 0; i < bm->stack_size; ++i) {
-            fprintf(stream, "  %ld\n", bm->stack[i]);
+        for (Inst_Addr i = 0; i < bm->stack_size; ++i) {
+            fprintf(stream, "  %lu %ld %lf %p\n", 
+                      bm->stack[i].as_u64,
+                      bm->stack[i].as_i64,
+                      bm->stack[i].as_f64,
+                      bm->stack[i].as_ptr);
         }
     }
     else {
@@ -332,7 +337,7 @@ void bm_dump_stack(FILE* stream, const Bm* bm)
     }
 }
 
-void bm_debasm_file(Bm* bm, char const* file_path)
+void bm_debasm_file(Bm* bm, char const* file_path) 
 {
     bm_load_program_from_file(bm, file_path);
 
@@ -480,7 +485,7 @@ int sv_to_int(string_t* line)
     return sum;
 }
 
-Word table_label_find(const table_label* lt, string_t name) {
+Inst_Addr table_label_find(const table_label* lt, string_t name) {
     for (size_t i = 0; i < lt->label_size; ++i) {
         if (cmp_str(lt->label[i].name, name)) {
             return lt->label[i].addr;
@@ -494,11 +499,11 @@ Word table_label_find(const table_label* lt, string_t name) {
     return -1;
 }
 
-void table_label_unresolved_push(table_label* table, string_t name, Word addr) {
+void table_label_unresolved_push(table_label* table, string_t name, Inst_Addr addr) {
     table->unresolved_jmp[table->unresolved_jmp_size++] = (Unresolved_jmp){ .name = name,.addr = addr };
 }
 
-void table_label_push(table_label* table, string_t name, Word addr) {
+void table_label_push(table_label* table, string_t name, Inst_Addr addr) {
     table->label[table->label_size++] = (Label){ .name = name , .addr = addr };
 }
 

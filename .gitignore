@@ -11,6 +11,7 @@
 *.sln.docstates
 *.basm
 *.bm
+*.sln
 
 bme
 basm

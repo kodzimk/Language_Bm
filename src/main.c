@@ -1,9 +1,10 @@
-#include<iostream>
+#include<stdio.h>
+#include<stdint.h>
+#include<stdlib.h>
 
-int main()
-{
-	 int i = 5;
-	int  *const b = i;
-	printf("%cd", *b);
-	return 0;
-}
+typedef union {
+	uint64_t as_u64;
+	int64_t as_i64;
+	double as_f64;
+	void *as_ptr;
+}Frame;
