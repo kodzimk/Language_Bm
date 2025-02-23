@@ -325,7 +325,7 @@ void bm_dump_stack(FILE* stream, const Bm* bm)
     fprintf(stream, "Stack:\n");
     if (bm->stack_size > 0) {
         for (Inst_Addr i = 0; i < bm->stack_size; ++i) {
-            fprintf(stream, "  %lu %ld %lf %p\n", 
+            fprintf(stream, "u64:%lu, i64:%ld, f64:%lf, ptr:%p\n", 
                       bm->stack[i].as_u64,
                       bm->stack[i].as_i64,
                       bm->stack[i].as_f64,
@@ -341,15 +341,15 @@ void bm_debasm_file(Bm* bm, char const* file_path)
 {
     bm_load_program_from_file(bm, file_path);
 
-    for (size_t i = 0; i < (size_t)bm->program_size; ++i)
+    for (Inst_Addr i = 0; i < bm->program_size; ++i)
     {
         switch (bm->program[i].type)
         {
         case INST_PUSH:
-            printf("push:%d\n", (int)bm->program[i].operand);
+            printf("push:%ld\n", bm->program[i].operand.as_i64);
             break;
         case INST_DUP:
-            printf("dup:%d\n", (int)bm->program[i].operand);
+            printf("dup:%ld\n", bm->program[i].operand.as_i64);
             break;
         case INST_PLUS:
             printf("plus\n");
@@ -364,10 +364,10 @@ void bm_debasm_file(Bm* bm, char const* file_path)
             printf("div\n");
             break;
         case INST_JMP:
-            printf("jmp:%d\n", (int)bm->program[i].operand);
+            printf("jmp:%d\n", bm->program[i].operand.as_i64);
             break;
         case INST_JMP_IF:
-            printf("jmp_if\n");
+            printf("jmp_if:%d\n", bm->program[i].operand.as_i64);
             break;
         case INST_EQ:
             printf("eq\n");
@@ -577,23 +577,23 @@ Inst get_inst_line(string_t* line,table_label  *lt,Bm *bm)
     if (cmp_str(inst_name, from_cstr_to_str("push")))
     {
         int operand = sv_to_int(line);
-        return (Inst) { .type = INST_PUSH, .operand = (operand) };
+        return (Inst) { .type = INST_PUSH, .operand.as_i64 = (operand) };
     }
     else if (cmp_str(inst_name, from_cstr_to_str("min")))
     {
         int operand = sv_to_int(line);
-        return (Inst) { .type = INST_MINUS, .operand = (operand) };
+        return (Inst) { .type = INST_MINUS, .operand.as_i64 = (operand) };
     }
     else if (cmp_str(inst_name, from_cstr_to_str("div")))
     {
         int operand = sv_to_int(line);
-        return (Inst) { .type = INST_DIV, .operand = (operand) };
+        return (Inst) { .type = INST_DIV, .operand.as_i64 = (operand) };
     }
     else if (cmp_str(inst_name, from_cstr_to_str("mul")))
     {
         int operand = sv_to_int(line);
 
-        return (Inst) { .type = INST_MULT, .operand = (operand) };
+        return (Inst) { .type = INST_MULT, .operand.as_i64 = (operand) };
     }
     else if (cmp_str(inst_name, from_cstr_to_str("eq")))
     {
@@ -604,7 +604,7 @@ Inst get_inst_line(string_t* line,table_label  *lt,Bm *bm)
         string_t operand = str_trim_right(chop_line(line, '\n'));
         table_label_unresolved_push(lt, operand, bm->program_size);
 
-         return (Inst) { .type = INST_JMP, .operand = -1 };
+         return (Inst) { .type = INST_JMP, .operand.as_i64 = -1 };
     }
     else if (cmp_str(inst_name, from_cstr_to_str("jmp_if")))
     {
@@ -621,7 +621,7 @@ Inst get_inst_line(string_t* line,table_label  *lt,Bm *bm)
     else if (cmp_str(inst_name, from_cstr_to_str("dup")))
     {
         int operand = sv_to_int(line);
-        return (Inst) { .type = INST_DUP, .operand = (operand) };
+        return (Inst) { .type = INST_DUP, .operand.as_i64 = (operand) };
     }
 
     return(Inst) { .type = INST_NOP };
@@ -654,8 +654,8 @@ void vm_translate_source(string_t source,Bm *bm,table_label* lt)
 
     for (size_t i = 0; i < lt->unresolved_jmp_size; i++)
     {
-        Word addr = table_label_find(lt, lt->unresolved_jmp[i].name);
-        bm->program[lt->unresolved_jmp[i].addr - 1].operand = addr;
+        Inst_Addr addr = table_label_find(lt, lt->unresolved_jmp[i].name);
+        bm->program[lt->unresolved_jmp[i].addr - 1].operand.as_u64 = addr;
     }
 }
 
