@@ -35,11 +35,16 @@ typedef enum {
     INST_MINUSI,
     INST_MULTI,
     INST_DIVI,
+    INST_PLUSF,
+    INST_MINUSF,
+    INST_MULTF,
+    INST_DIVF,
     INST_JMP,
     INST_JMP_IF,
     INST_EQ,
     INST_HALT,
     INST_PRINT_DEBUG,
+    AMOUNT_OF_INSTS
 } Inst_Type;
 
 typedef struct string
@@ -96,36 +101,6 @@ typedef struct {
 
 Bm bm = { 0 };
 
-const char* inst_names[] = {
-    [INST_NOP] = "nop",
-    [INST_PUSH] = "push",
-    [INST_DUP] = "dup",
-    [INST_PLUSI] = "plusi",
-    [INST_MINUSI] = "minusi",
-    [INST_MULTI] = "multi",
-    [INST_DIVI] = "divi",
-    [INST_JMP] = "jmp",
-    [INST_JMP_IF] = "jmp_if",
-    [INST_EQ] = "eq",
-    [INST_HALT] = "halt",
-    [INST_PRINT_DEBUG] = "print_debug",
-};
-
-const int inst_has_operand[] = {
-    [INST_NOP] = 0,
-    [INST_PUSH] = 1,
-    [INST_DUP] = 1,
-    [INST_PLUSI] = 0,
-    [INST_MINUSI] = 0,
-    [INST_MULTI] = 0,
-    [INST_DIVI] = 0,
-    [INST_JMP] = 1,
-    [INST_JMP_IF] = 1,
-    [INST_EQ] = 0,
-    [INST_HALT] = 0,
-    [INST_PRINT_DEBUG] = 0,
-};
-
 #define MAKE_INST_PUSH(value) {.type = INST_PUSH, .operand = (value)}
 #define MAKE_INST_PLUSI       {.type = INST_PLUSI}
 #define MAKE_INST_MINUSI       {.type = INST_MINUSI}
@@ -138,11 +113,15 @@ const int inst_has_operand[] = {
 #define MAKE_INST_RET         {.type = INST_RET}
 
 const char* err_as_cstr(Err err);
-const char* inst_type_as_cstr(Inst_Type type);
+const char* inst_names(Inst_Type type);
+int inst_has_operand(Inst_Type type);
+
+
 void bm_dump_stack(FILE* stream, const Bm* bm);
 void bm_load_program_from_file(Bm* bm, const char* file_path);
 void bm_save_program_to_file(Inst* program, size_t program_size, const char* file_path);
 void bm_debasm_file(Bm* bm, char const* file_path);
+
 Err bm_execute_inst(Bm* bm);
 Err bm_execute_program(Bm* bm, int limits);
 
@@ -152,11 +131,11 @@ void table_label_unresolved_push(table_label* table, string_t name, Inst_Addr ad
 
 int sv_to_int(string_t* line);
 int cmp_str(string_t str, string_t str2);
-
-Inst get_inst_line(string_t* line, table_label* lt, Bm* bm);
 string_t str_trim_left(string_t source);
 string_t chop_line_blank(string_t* source);
 string_t chop_line(string_t* source, char deli);
+
+Inst get_inst_line(string_t* line, table_label* lt, Bm* bm);
 string_t from_cstr_to_str(const char* str);
 string_t slurp_file(const char* file_path);
 void vm_translate_source(string_t source, Bm* bm, table_label* lt);
@@ -190,22 +169,52 @@ const char* err_as_cstr(Err err)
         assert(0 && "err_as_cstr: Unreachable");
     }
 }
-const char* inst_type_as_cstr(Inst_Type type)
+const char* inst_names(Inst_Type type)
 {
     switch (type) {
-    case INST_NOP:         return "INST_NOP";
-    case INST_PUSH:        return "INST_PUSH";
-    case INST_PLUSI:        return "INST_PLUSI";
-    case INST_MINUSI:       return "INST_MINUSI";
-    case INST_MULTI:        return "INST_MULTI";
-    case INST_DIVI:         return "INST_DIVI";
-    case INST_JMP:         return "INST_JMP";
-    case INST_HALT:        return "INST_HALT";
-    case INST_JMP_IF:      return "INST_JMP_IF";
-    case INST_EQ:          return "INST_EQ";
-    case INST_PRINT_DEBUG: return "INST_PRINT_DEBUG";
-    case INST_DUP:         return "INST_DUP";
+    case INST_NOP:         return "nop";
+    case INST_PUSH:        return "push";
+    case INST_PLUSI:       return "plusi";
+    case INST_MINUSI:      return "minusi";
+    case INST_MULTI:       return "multi";
+    case INST_DIVI:        return "divi";
+    case INST_PLUSF:       return "plusf";
+    case INST_MINUSF:      return "munisf";
+    case INST_MULTF:       return "multf";
+    case INST_DIVF:        return "divf";
+    case INST_JMP:         return "jmp";
+    case INST_HALT:        return "halt";
+    case INST_JMP_IF:      return "jmp_if";
+    case INST_EQ:          return "eq";
+    case INST_PRINT_DEBUG: return "print_debug";
+    case INST_DUP:         return "dup";
+    case AMOUNT_OF_INSTS:
     default: assert(0 && "inst_type_as_cstr: unreachable");
+    }
+}
+
+int inst_has_operand(Inst_Type type)
+{
+    switch (type){
+    case INST_NOP:         return 0;
+    case INST_PUSH:        return 1;
+    case INST_DUP:         return 1;
+    case INST_PLUSI:       return 0;
+    case INST_MINUSI:      return 0;
+    case INST_MULTI:       return 0;
+    case INST_DIVI:        return 0;
+    case INST_PLUSF:       return 0;
+    case INST_MINUSF:      return 0;
+    case INST_MULTF:       return 0;
+    case INST_DIVF:        return 0;
+    case INST_JMP:         return 1;
+    case INST_HALT:        return 0;
+    case INST_JMP_IF:      return 1;
+    case INST_EQ:          return 0;
+    case INST_PRINT_DEBUG: return 0;
+    case AMOUNT_OF_INSTS:
+    default: assert(0 && "inst_type_as_cstr: unreachable");
+        
     }
 }
 
@@ -288,6 +297,10 @@ Err bm_execute_inst(Bm* bm)
         bm->ip += 1;
         break;
 
+    case INST_PLUSF:
+        if(bm->stack_size > BM_STACK_CAPACITY)
+        break;
+
     case INST_JMP:
         bm->ip = inst.operand.as_u64;
         break;
@@ -343,6 +356,7 @@ Err bm_execute_inst(Bm* bm)
         bm->ip += 1;
         break;
 
+    case AMOUNT_OF_INSTS:
     default:
         return ERR_ILLEGAL_INST;
     }
@@ -373,8 +387,8 @@ void bm_debasm_file(Bm* bm, char const* file_path)
 
     for (Inst_Addr i = 0; i < bm->program_size; ++i)
     {
-        printf("%s", inst_names[bm->program[i].type]);
-        if (inst_has_operand[bm->program[i].operand.as_i64]){
+        printf("%s", inst_names(bm->program[i].type));
+        if (inst_has_operand(bm->program[i].operand.as_i64)){
             printf(" %ld", bm->program[i].operand.as_i64);
         }
         printf("\n");
@@ -570,23 +584,27 @@ Inst get_inst_line(string_t* line,table_label  *lt,Bm *bm)
 {
     string_t inst_name = chop_line_blank(line);
     *line = str_trim_left(*line);
-    if (cmp_str(inst_name, from_cstr_to_str(inst_names[INST_PUSH])))
+    if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_PUSH))))
     {
         int operand = sv_to_int(line);
         return (Inst) { .type = INST_PUSH, .operand.as_i64 = (operand) };
     }
-    else if (cmp_str(inst_name, from_cstr_to_str(inst_names[INST_JMP])))
+    else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_JMP))))
     {    
         string_t operand = str_trim_right(chop_line(line, '\n'));
         table_label_unresolved_push(lt, operand, bm->program_size);
 
          return (Inst) { .type = INST_JMP, .operand.as_i64 = 0 };
     }
-    else if (cmp_str(inst_name, from_cstr_to_str(inst_names[INST_PLUSI])))
+    else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_PLUSI))))
     {
         return (Inst) { .type = INST_PLUSI };
     }
-    else if (cmp_str(inst_name, from_cstr_to_str(inst_names[INST_DUP])))
+    else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_PLUSF))))
+    {
+        return (Inst) { .type = INST_PLUSF };
+    }
+    else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_DUP))))
     {
         int operand = sv_to_int(line);
         return (Inst) { .type = INST_DUP, .operand.as_i64 = (operand) };
