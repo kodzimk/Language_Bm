@@ -1,15 +1,28 @@
 	push 1.0
-	push 1.0 
+	push 1.0
+	push 1.0
 loop:
-	swap
 	push 1.0
 	dup 2
 	divf
 	plusf
-	swap
 
-	dup 0
+	swap 2
 	push 1.0
 	plusf
+	dup 0
+	swap 2
 	multf
-	jmp loop
+	
+	swap 1
+	swap 2
+
+	dup 2
+	push 69.0
+	gef
+
+	jmp_if loop
+
+	print_debug
+
+	halt

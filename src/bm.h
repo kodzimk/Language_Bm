@@ -44,6 +44,8 @@ typedef enum {
     INST_JMP_IF,
     INST_EQ,
     INST_HALT,
+    INST_NOT,
+    INST_GEF,
     INST_PRINT_DEBUG,
     AMOUNT_OF_INSTS
 } Inst_Type;
@@ -190,6 +192,8 @@ const char* inst_names(Inst_Type type)
     case INST_HALT:        return "halt";
     case INST_JMP_IF:      return "jmp_if";
     case INST_EQ:          return "eq";
+    case INST_NOT:          return "not";
+    case INST_GEF:          return "gef";
     case INST_PRINT_DEBUG: return "print_debug";
     case INST_DUP:         return "dup";
     case AMOUNT_OF_INSTS:
@@ -203,7 +207,7 @@ int inst_has_operand(Inst_Type type)
     case INST_NOP:         return 0;
     case INST_PUSH:        return 1;
     case INST_DUP:         return 1;
-    case INST_SWAP:        return 0;
+    case INST_SWAP:        return 1;
     case INST_PLUSI:       return 0;
     case INST_MINUSI:      return 0;
     case INST_MULTI:       return 0;
@@ -215,7 +219,9 @@ int inst_has_operand(Inst_Type type)
     case INST_JMP:         return 1;
     case INST_HALT:        return 0;
     case INST_JMP_IF:      return 1;
-    case INST_EQ:          return 0;
+    case INST_EQ:          return 0; 
+    case INST_GEF:         return 0;
+    case INST_NOT:         return 0;
     case INST_PRINT_DEBUG: return 0;
     case AMOUNT_OF_INSTS:
     default: assert(0 && "inst_type_as_cstr: unreachable");
@@ -233,8 +239,6 @@ Err bm_execute_program(Bm* bm, int limit)
         if (limit > 0) {
             --limit;
         }
-
-        bm_dump_stack(stdout, bm);
     }
 
     return ERR_OK;
@@ -364,18 +368,23 @@ Err bm_execute_inst(Bm* bm)
         }
 
         if (bm->stack[bm->stack_size - 1].as_u64) {
-            bm->stack_size -= 1;
             bm->ip = inst.operand.as_u64;
         }
         else {
             bm->ip += 1;
         }
+            bm->stack_size -= 1;
         break;
 
     case INST_PRINT_DEBUG:
         if (bm->stack_size < 1) {
             return ERR_STACK_UNDERFLOW;
         }
+        fprintf(stdout, "  u64: %lu, i64: %ld, f64: %lf, ptr: %p\n",
+            bm->stack[bm->stack_size - 1].as_u64,
+            bm->stack[bm->stack_size - 1].as_i64,
+            bm->stack[bm->stack_size - 1].as_f64,
+            bm->stack[bm->stack_size - 1].as_ptr);
         bm->stack_size -= 1;
         bm->ip += 1;
         break;
@@ -389,20 +398,44 @@ Err bm_execute_inst(Bm* bm)
             return ERR_STACK_UNDERFLOW;
         }
 
-        bm->stack[bm->stack_size].as_u64 = bm->stack[bm->stack_size - 1 - inst.operand.as_u64].as_u64;
+        bm->stack[bm->stack_size] = bm->stack[bm->stack_size - 1 - inst.operand.as_u64];
         bm->stack_size += 1;
         bm->ip += 1;
         break;
 
     case INST_SWAP:
+        if (inst.operand.as_u64 >= bm->stack_size) {
+            return ERR_STACK_UNDERFLOW;
+        }
+
+        const uint64_t a = bm->stack_size - 1;
+        const uint64_t b = bm->stack_size - 1 - inst.operand.as_u64;
+
+        Word t = bm->stack[a];
+        bm->stack[a] = bm->stack[b];
+        bm->stack[b] = t;
+        bm->ip += 1;
+
+        break;
+    case INST_NOT:
+        if (bm->stack_size < 1) {
+            return ERR_STACK_UNDERFLOW;
+        }
+
+        bm->stack[bm->stack_size - 1].as_u64 = !bm->stack[bm->stack_size - 1].as_u64;
+        bm->ip += 1;
+        break;
+
+    case INST_GEF:
         if (bm->stack_size < 2) {
             return ERR_STACK_UNDERFLOW;
         }
-        Word t = bm->stack[bm->stack_size - 1];
-        bm->stack[bm->stack_size - 1] = bm->stack[bm->stack_size - 2];
-        bm->stack[bm->stack_size - 2] = t;
+        bm->stack[bm->stack_size - 2].as_u64 = bm->stack[bm->stack_size - 1].as_f64 >=
+            bm->stack[bm->stack_size - 2].as_f64;
+        bm->stack_size -= 1;
         bm->ip += 1;
         break;
+
     case AMOUNT_OF_INSTS:
     default:
         return ERR_ILLEGAL_INST;
@@ -668,6 +701,13 @@ Inst get_inst_line(string_t* line,table_label  *lt,Bm *bm)
 
          return (Inst) { .type = INST_JMP, .operand.as_i64 = 0 };
     }
+    else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_JMP_IF))))
+    {
+        string_t operand = str_trim_right(chop_line(line, '\n'));
+        table_label_unresolved_push(lt, operand, bm->program_size);
+
+        return (Inst) { .type = INST_JMP_IF, .operand.as_i64 = 0 };
+    }
     else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_PLUSI))))
     {
         return (Inst) { .type = INST_PLUSI };
@@ -695,8 +735,29 @@ Inst get_inst_line(string_t* line,table_label  *lt,Bm *bm)
     }
     else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_SWAP))))
     {
-        return (Inst) { .type = INST_SWAP};
+        return (Inst) { .type = INST_SWAP, .operand.as_i64 = sv_to_int(line) };
     }
+    else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_EQ))))
+    {
+        return (Inst) { .type = INST_EQ };
+    }
+    else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_NOT))))
+    {
+        return (Inst) { .type = INST_NOT };
+    }
+    else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_GEF))))
+    {
+        return (Inst) { .type = INST_GEF};
+    }
+    else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_HALT))))
+    {
+        return (Inst) { .type = INST_HALT};
+    }
+    else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_PRINT_DEBUG))))
+    {
+        return (Inst) { .type = INST_PRINT_DEBUG};
+    }
+
 
     return(Inst) { .type = INST_NOP };
 }

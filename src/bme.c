@@ -58,7 +58,7 @@ int main(int argc, char** argv)
 
     if (!debug) {
         Err err = bm_execute_program(&bm, limit);
-        bm_dump_stack(stdout, &bm);
+       /* bm_dump_stack(stdout, &bm);*/
 
         if (err != ERR_OK) {
             fprintf(stderr, "ERROR: %s\n", err_as_cstr(err));
@@ -67,7 +67,7 @@ int main(int argc, char** argv)
     }
     else {
         while (limit != 0 && !bm.halt) {
-            bm_dump_stack(stdout, &bm);
+            /*bm_dump_stack(stdout, &bm);*/
             if (getchar() == 'e')
                 break;
             Err err = bm_execute_inst(&bm);

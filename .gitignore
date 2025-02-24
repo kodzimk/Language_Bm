@@ -13,11 +13,10 @@
 *.bm
 *.sln
 
+*.bm
 bme
 basm
 debasm
-nan
-
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
