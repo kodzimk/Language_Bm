@@ -1,9 +1,15 @@
-push 1.0
-push 2.0
-push 3.0
-plusf
-plusf
-push 0.0
-push 0.0
-divf
-halt
+	push 1.0
+	push 1.0 
+loop:
+	swap
+	push 1.0
+	dup 2
+	divf
+	plusf
+	swap
+
+	dup 0
+	push 1.0
+	plusf
+	multf
+	jmp loop

@@ -31,6 +31,7 @@ typedef enum {
     INST_NOP = 0,
     INST_PUSH,
     INST_DUP,
+    INST_SWAP,
     INST_PLUSI,
     INST_MINUSI,
     INST_MULTI,
@@ -184,6 +185,7 @@ const char* inst_names(Inst_Type type)
     case INST_MINUSF:      return "munisf";
     case INST_MULTF:       return "multf";
     case INST_DIVF:        return "divf";
+    case INST_SWAP:        return "swap";
     case INST_JMP:         return "jmp";
     case INST_HALT:        return "halt";
     case INST_JMP_IF:      return "jmp_if";
@@ -201,6 +203,7 @@ int inst_has_operand(Inst_Type type)
     case INST_NOP:         return 0;
     case INST_PUSH:        return 1;
     case INST_DUP:         return 1;
+    case INST_SWAP:        return 0;
     case INST_PLUSI:       return 0;
     case INST_MINUSI:      return 0;
     case INST_MULTI:       return 0;
@@ -298,7 +301,7 @@ Err bm_execute_inst(Bm* bm)
             return ERR_STACK_UNDERFLOW;
         }
 
-        bm->stack[bm->stack_size - 2].as_f64 *= bm->stack[bm->stack_size - 1].as_f64;
+        bm->stack[bm->stack_size - 2].as_f64 /= bm->stack[bm->stack_size - 1].as_f64;
         bm->stack_size -= 1;
         bm->ip += 1;
         break;
@@ -391,6 +394,15 @@ Err bm_execute_inst(Bm* bm)
         bm->ip += 1;
         break;
 
+    case INST_SWAP:
+        if (bm->stack_size < 2) {
+            return ERR_STACK_UNDERFLOW;
+        }
+        Word t = bm->stack[bm->stack_size - 1];
+        bm->stack[bm->stack_size - 1] = bm->stack[bm->stack_size - 2];
+        bm->stack[bm->stack_size - 2] = t;
+        bm->ip += 1;
+        break;
     case AMOUNT_OF_INSTS:
     default:
         return ERR_ILLEGAL_INST;
@@ -628,13 +640,14 @@ Word number_literal_as_word(string_t sv)
 
 
     result.as_u64 = strtoull(cstr, &endptr, 10);
-
+    printf("LLU: %llu\n", result.as_u64);
     if ((size_t)(endptr - cstr) != sv.size) {
         result.as_f64= strtod(cstr, &endptr);
-        if ((size_t)(endptr - cstr) != sv.size - 1) {
+        printf("LD: %f\n", result.as_f64);
+    /*    if ((size_t)(endptr - cstr) != sv.size) {
             fprintf(stderr, "ERROR: %s is not a number literla\n", cstr);
             exit(1);
-        }
+        }*/
     }
 
     return result;
@@ -678,8 +691,11 @@ Inst get_inst_line(string_t* line,table_label  *lt,Bm *bm)
     }
     else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_DUP))))
     {
-        int operand = sv_to_int(line);
-        return (Inst) { .type = INST_DUP, .operand.as_i64 = (operand) };
+        return (Inst) { .type = INST_DUP, .operand.as_i64 = sv_to_int(line) };
+    }
+    else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_SWAP))))
+    {
+        return (Inst) { .type = INST_SWAP};
     }
 
     return(Inst) { .type = INST_NOP };
