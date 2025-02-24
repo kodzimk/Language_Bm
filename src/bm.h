@@ -3,8 +3,8 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <string.h>
+#include <stdint.h>
 #include <errno.h>
 #include <ctype.h>
 
@@ -116,7 +116,6 @@ const char* err_as_cstr(Err err);
 const char* inst_names(Inst_Type type);
 int inst_has_operand(Inst_Type type);
 
-
 void bm_dump_stack(FILE* stream, const Bm* bm);
 void bm_load_program_from_file(Bm* bm, const char* file_path);
 void bm_save_program_to_file(Inst* program, size_t program_size, const char* file_path);
@@ -129,16 +128,19 @@ Inst_Addr table_label_find(const table_label* table, string_t name);
 void table_label_push(table_label* table, string_t name, Inst_Addr addr);
 void table_label_unresolved_push(table_label* table, string_t name, Inst_Addr addr);
 
+Word number_literal_as_word(string_t sv);
+
 int sv_to_int(string_t* line);
 int cmp_str(string_t str, string_t str2);
 string_t str_trim_left(string_t source);
 string_t chop_line_blank(string_t* source);
 string_t chop_line(string_t* source, char deli);
-
-Inst get_inst_line(string_t* line, table_label* lt, Bm* bm);
 string_t from_cstr_to_str(const char* str);
 string_t slurp_file(const char* file_path);
+
+Inst get_inst_line(string_t* line, table_label* lt, Bm* bm);
 void vm_translate_source(string_t source, Bm* bm, table_label* lt);
+
 
 #endif // _BM_H 
 
@@ -274,6 +276,33 @@ Err bm_execute_inst(Bm* bm)
         bm->ip += 1;
         break;
 
+    case INST_MINUSF:
+        if (bm->stack_size < 2) {
+            return ERR_STACK_UNDERFLOW;
+        }
+        bm->stack[bm->stack_size - 2].as_f64 -= bm->stack[bm->stack_size - 1].as_f64;
+        bm->stack_size -= 1;
+        bm->ip += 1;
+        break;
+    case INST_MULTF:
+        if (bm->stack_size < 2) {
+            return ERR_STACK_UNDERFLOW;
+        }
+        bm->stack[bm->stack_size - 2].as_f64 *= bm->stack[bm->stack_size - 1].as_f64;
+        bm->stack_size -= 1;
+        bm->ip += 1;
+        break;
+
+    case INST_DIVF:
+        if (bm->stack_size < 2) {
+            return ERR_STACK_UNDERFLOW;
+        }
+
+        bm->stack[bm->stack_size - 2].as_f64 *= bm->stack[bm->stack_size - 1].as_f64;
+        bm->stack_size -= 1;
+        bm->ip += 1;
+        break;
+
     case INST_MULTI:
         if (bm->stack_size < 2) {
             return ERR_STACK_UNDERFLOW;
@@ -298,7 +327,14 @@ Err bm_execute_inst(Bm* bm)
         break;
 
     case INST_PLUSF:
-        if(bm->stack_size > BM_STACK_CAPACITY)
+        if (bm->stack_size > BM_STACK_CAPACITY)
+        {
+            return ERR_STACK_OVERFLOW;
+        }
+
+        bm->stack[bm->stack_size - 2].as_f64 += bm->stack[bm->stack_size - 1].as_f64;
+        bm->stack_size -= 1;
+        bm->ip += 1;
         break;
 
     case INST_JMP:
@@ -337,7 +373,6 @@ Err bm_execute_inst(Bm* bm)
         if (bm->stack_size < 1) {
             return ERR_STACK_UNDERFLOW;
         }
-        printf("%llu\n", bm->stack[bm->stack_size - 1]);
         bm->stack_size -= 1;
         bm->ip += 1;
         break;
@@ -580,14 +615,38 @@ string_t chop_line_blank(string_t* source)
     return line;
 }
 
+Word number_literal_as_word(string_t sv)
+{
+    assert(sv.size < 1024);
+    char cstr[sv.size + 1];
+    char* endptr = 0;
+
+    memcpy(cstr, sv.buffer, sv.size);
+    cstr[sv.size] = '\0';
+
+    Word result = { 0 };
+
+
+    result.as_u64 = strtoull(cstr, &endptr, 10);
+
+    if ((size_t)(endptr - cstr) != sv.size) {
+        result.as_f64= strtod(cstr, &endptr);
+        if ((size_t)(endptr - cstr) != sv.size - 1) {
+            fprintf(stderr, "ERROR: %s is not a number literla\n", cstr);
+            exit(1);
+        }
+    }
+
+    return result;
+}
+
 Inst get_inst_line(string_t* line,table_label  *lt,Bm *bm)
 {
     string_t inst_name = chop_line_blank(line);
     *line = str_trim_left(*line);
     if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_PUSH))))
     {
-        int operand = sv_to_int(line);
-        return (Inst) { .type = INST_PUSH, .operand.as_i64 = (operand) };
+        return (Inst) { .type = INST_PUSH, .operand = number_literal_as_word(*line) };
     }
     else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_JMP))))
     {    
@@ -603,6 +662,19 @@ Inst get_inst_line(string_t* line,table_label  *lt,Bm *bm)
     else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_PLUSF))))
     {
         return (Inst) { .type = INST_PLUSF };
+    }
+    else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_MINUSF))))
+    {
+        return (Inst) { .type = INST_MINUSF };
+    }
+    else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_MULTF))))
+    {
+        return (Inst) { .type = INST_MULTF  };
+    }
+    else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_DIVF))))
+    {
+        return (Inst) { .type = INST_DIVF
+        };
     }
     else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_DUP))))
     {
