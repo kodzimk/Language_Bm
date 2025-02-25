@@ -47,6 +47,7 @@ typedef enum {
     INST_NOT,
     INST_GEF,
     INST_RET,
+    INST_CALL,
     INST_PRINT_DEBUG,
     AMOUNT_OF_INSTS
 } Inst_Type;
@@ -198,6 +199,7 @@ const char* inst_names(Inst_Type type)
     case INST_PRINT_DEBUG: return "print_debug";
     case INST_DUP:         return "dup";
     case INST_RET:         return "ret";
+    case INST_CALL:         return "call";
     case AMOUNT_OF_INSTS:
     default: assert(0 && "inst_type_as_cstr: unreachable");
     }
@@ -225,6 +227,7 @@ int inst_has_operand(Inst_Type type)
     case INST_GEF:         return 0;
     case INST_NOT:         return 0;
     case INST_RET:         return 0;
+    case INST_CALL:        return 1;
     case INST_PRINT_DEBUG: return 0;
     case AMOUNT_OF_INSTS:
     default: assert(0 && "inst_type_as_cstr: unreachable");
@@ -447,6 +450,14 @@ Err bm_execute_inst(Bm* bm)
         bm->stack_size -= 1;
         break;
 
+     case INST_CALL:
+        if(bm->stack_size >= BM_STACK_CAPACITY){
+            return ERR_STACK_OVERFLOW;
+        }
+        
+        bm->stack[bm->stack_size++].as_u64 = bm->ip;     
+        bm->ip = inst.operand.as_u64;
+        break;
 
     case AMOUNT_OF_INSTS:
     default:
@@ -720,6 +731,13 @@ Inst get_inst_line(string_t* line,table_label  *lt,Bm *bm)
 
         return (Inst) { .type = INST_JMP_IF, .operand.as_i64 = 0 };
     }
+    else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_CALL))))
+    {
+        string_t operand = str_trim_right(chop_line(line, '\n'));
+        table_label_unresolved_push(lt, operand, bm->program_size);
+
+        return (Inst) { .type = INST_CALL, .operand.as_i64 = 0 };
+    }
     else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_PLUSI))))
     {
         return (Inst) { .type = INST_PLUSI };
@@ -769,7 +787,10 @@ Inst get_inst_line(string_t* line,table_label  *lt,Bm *bm)
     {
         return (Inst) { .type = INST_PRINT_DEBUG};
     }
-
+    else if (cmp_str(inst_name, from_cstr_to_str(inst_names(INST_RET))))
+    {
+        return (Inst) { .type = INST_RET};
+    }
 
     return(Inst) { .type = INST_NOP };
 }
