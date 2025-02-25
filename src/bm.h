@@ -16,6 +16,7 @@
 #define LABEL_CAPACITY 1024
 #define DEFERRED_OPERANDS_CAPACITY 1024
 #define NUMBER_LITERAL_CAPACITY 1024
+#define BM_NATIVES_CAPACITY 1024
 
 typedef enum {
     ERR_OK = 0,
@@ -75,6 +76,11 @@ typedef struct {
     Word operand;
 } Inst;
 
+
+typedef struct Bm Bm;
+
+typedef Err (*Bm_Native)(Bm*);
+
 typedef struct {
     Word stack[BM_STACK_CAPACITY];
     uint64_t stack_size;
@@ -84,11 +90,17 @@ typedef struct {
     Inst_Addr ip;
 
     int halt;
+
+    Bm_Native natives[BM_NATIVES_CAPACITY];
+    size_t natives_size;
+
 } Bm;
+
 
 Err bm_execute_inst(Bm *bm);
 Err bm_execute_program(Bm *bm, int limit);
 void bm_dump_stack(FILE *stream, const Bm *bm);
+void bm_push_native(Bm *bm,Bm_Native native);
 void bm_load_program_from_memory(Bm *bm, Inst *program, size_t program_size);
 void bm_load_program_from_file(Bm *bm, const char *file_path);
 void bm_save_program_to_file(const Bm *bm, const char *file_path);
@@ -219,6 +231,12 @@ const char *err_as_cstr(Err err)
         assert(0 && "err_as_cstr: Unreachable");
         exit(1);
     }
+}
+
+void bm_push_native(Bm *bm,Bm_Native native)
+{
+    assert(bm->natives_size < BM_NATIVES_CAPACITY);
+    bm->natives[bm->natives_size++] = native;
 }
 
 Err bm_execute_program(Bm *bm, int limit)

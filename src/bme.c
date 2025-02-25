@@ -17,6 +17,16 @@ static void usage(FILE *stream, const char *program)
     fprintf(stream, "Usage: %s -i <input.bm> [-l <limit>] [-h] [-d]\n", program);
 }
 
+static Err bm_alloc(Bm *bm)
+{
+    if(bm->stack_size < 1){
+        return ERR_STACK_UNDERFLOW;
+    }
+    bm->stack[bm->stack_size - 1].as_ptr = malloc(bm->stack[bm->stack_size - 1].as_u64);
+    
+    return ERR_OK;
+}
+
 int main(int argc, char **argv)
 {
     const char *program = shift(&argc, &argv);
@@ -62,6 +72,7 @@ int main(int argc, char **argv)
     }
 
     bm_load_program_from_file(&bm, input_file_path);
+    bm_push_native(&bm,bm_alloc);
 
     if (!debug) {
         Err err = bm_execute_program(&bm, limit);
