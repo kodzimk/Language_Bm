@@ -46,6 +46,7 @@ typedef enum {
     INST_HALT,
     INST_NOT,
     INST_GEF,
+    INST_RET,
     INST_PRINT_DEBUG,
     AMOUNT_OF_INSTS
 } Inst_Type;
@@ -196,6 +197,7 @@ const char* inst_names(Inst_Type type)
     case INST_GEF:          return "gef";
     case INST_PRINT_DEBUG: return "print_debug";
     case INST_DUP:         return "dup";
+    case INST_RET:         return "ret";
     case AMOUNT_OF_INSTS:
     default: assert(0 && "inst_type_as_cstr: unreachable");
     }
@@ -222,6 +224,7 @@ int inst_has_operand(Inst_Type type)
     case INST_EQ:          return 0; 
     case INST_GEF:         return 0;
     case INST_NOT:         return 0;
+    case INST_RET:         return 0;
     case INST_PRINT_DEBUG: return 0;
     case AMOUNT_OF_INSTS:
     default: assert(0 && "inst_type_as_cstr: unreachable");
@@ -435,6 +438,15 @@ Err bm_execute_inst(Bm* bm)
         bm->stack_size -= 1;
         bm->ip += 1;
         break;
+    case INST_RET:
+        if (bm->stack_size < 1) {
+            return ERR_STACK_UNDERFLOW;
+        }
+
+        bm->ip = bm->stack[bm->stack_size - 1].as_u64;
+        bm->stack_size -= 1;
+        break;
+
 
     case AMOUNT_OF_INSTS:
     default:
