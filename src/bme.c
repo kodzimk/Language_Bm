@@ -98,7 +98,7 @@ int main(int argc, char **argv)
     } else {
         while (limit != 0 && !bm.halt) {
             bm_dump_stack(stdout, &bm);
-            printf("%s %" PRIu64 "\n",
+            printf("> %s %" PRIu64 "\n",
                             inst_name(bm.program[bm.ip].type),
                             bm.program[bm.ip].operand.as_u64);
             getchar();
