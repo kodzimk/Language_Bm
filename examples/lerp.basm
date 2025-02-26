@@ -1,45 +1,44 @@
-    jmp main
 
-# a
-# b
-# t
-# --
-# a + (b - a) * t
-lerpf:
-    dup 3
-    dup 3
-    dup 1
-    minusf
-    dup 3
-    multf
+
+push 4.0       
+push 3.0        
+push 750000     
+
+loop:
+    swap 2      
+
+
+    push 4.0
+    dup 2
+    push 2.0
     plusf
+    swap 3
 
-    # clean up
+
+    divf       
+    minusf      
+
+
+    push 4.0
+    dup 2
+    push 2.0
+    plusf
+    swap 3
+
+
+    divf       
+    plusf     
+
     swap 2
-    drop
-    swap 2
-    drop
-    swap 2
-    drop
-    ret
+    push 1
+    minusi
 
-main:
-    push 69.0
-    push 420.0
-    push 0.0
-    call lerpf
-    # 69.0
+    dup 0      
+    jmp_if loop
 
-    push 69.0
-    push 420.0
-    push 1.0
-    call lerpf
-    # 420.0
 
-    push 69.0
-    push 420.0
-    push 0.5
-    call lerpf
-    # 244.5
+drop
+drop
+native 2                
 
-    halt
+halt
