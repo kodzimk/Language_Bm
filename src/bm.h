@@ -51,6 +51,7 @@ typedef enum {
     INST_EQ,
     INST_HALT,
     INST_NOT,
+    INST_NATIVE,
     INST_GEF,
     INST_PRINT_DEBUG,
     NUMBER_OF_INSTS,
@@ -81,7 +82,7 @@ typedef struct Bm Bm;
 
 typedef Err (*Bm_Native)(Bm*);
 
-typedef struct {
+typedef struct Bm {
     Word stack[BM_STACK_CAPACITY];
     uint64_t stack_size;
 
@@ -172,6 +173,7 @@ int inst_has_operand(Inst_Type type)
     case INST_NOT:         return 0;
     case INST_GEF:         return 0;
     case INST_RET:         return 0;
+    case INST_NATIVE:         return 1;
     case INST_CALL:        return 1;
     case NUMBER_OF_INSTS:
     default: assert(0 && "inst_has_operand: unreachable");
@@ -195,6 +197,7 @@ const char *inst_name(Inst_Type type)
     case INST_MULTF:       return "multf";
     case INST_DIVF:        return "divf";
     case INST_JMP:         return "jmp";
+    case INST_NATIVE:      return "native";
     case INST_JMP_IF:      return "jmp_if";
     case INST_EQ:          return "eq";
     case INST_HALT:        return "halt";
@@ -375,6 +378,15 @@ Err bm_execute_inst(Bm *bm)
 
         bm->ip = bm->stack[bm->stack_size - 1].as_u64;
         bm->stack_size -= 1;
+        break;
+
+    case INST_NATIVE:
+        if(inst.operand.as_u64 > bm->natives_size){
+            return ERR_ILLEGAL_OPERAND;
+        }
+
+        bm->natives[inst.operand.as_u64](bm);
+        bm->ip += 1;
         break;
 
     case INST_CALL:
@@ -824,7 +836,13 @@ void bm_translate_source(String_View source, Bm *bm, Basm *basm)
                         .type = INST_SWAP,
                         .operand = { .as_i64 = sv_to_int(operand) },
                     };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_EQ)))) {
+                    
+                }else if (sv_eq(token, cstr_as_sv(inst_name(INST_NATIVE)))) {
+                    bm->program[bm->program_size++] = (Inst) {
+                        .type = INST_NATIVE,
+                        .operand = { .as_i64 = sv_to_int(operand) },
+                    };
+                }  else if (sv_eq(token, cstr_as_sv(inst_name(INST_EQ)))) {
                     bm->program[bm->program_size++] = (Inst) {
                         .type = INST_EQ,
                     };
