@@ -36,7 +36,7 @@ int main(int argc, char **argv)
     }
     const char *output_file_path = shift(&argc, &argv);
 
-    String_View source = sv_slurp_file(input_file_path);
+    String_View source = basm_slurp_file(&basm,cstr_as_sv(input_file_path));
 
     bm_translate_source(source, &bm, &basm);
     bm_save_program_to_file(&bm, output_file_path);

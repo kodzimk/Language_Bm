@@ -1,11 +1,10 @@
+%include natives.hasm
 
-    
-    jmp main
+   jmp main
 
 main:
     push 420
-    native 0
-    native 1
-    push 21.0
-    native 2
+    native malloc
+    native free
+    native printf_f64
     halt

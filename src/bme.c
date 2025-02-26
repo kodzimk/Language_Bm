@@ -50,6 +50,17 @@ static Err bm_print_f64(Bm *bm)
     return ERR_OK;
 }
 
+static Err bm_print_ptr(Bm *bm)
+{
+    if (bm->stack_size < 1) {
+        return ERR_STACK_UNDERFLOW;
+    }
+
+    printf("%p\n", bm->stack[bm->stack_size - 1].as_ptr);
+    bm->stack_size -= 1;
+    return ERR_OK;
+}
+
 int main(int argc, char **argv)
 {
     const char *program = shift(&argc, &argv);
@@ -100,6 +111,7 @@ int main(int argc, char **argv)
     bm_push_native(&bm,bm_alloc);
     bm_push_native(&bm,bm_free);
     bm_push_native(&bm,bm_print_f64);
+    bm_push_native(&bm,bm_print_ptr);
 
     if (!debug) {
         Err err = bm_execute_program(&bm, limit);

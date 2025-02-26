@@ -18,6 +18,9 @@
 #define NUMBER_LITERAL_CAPACITY 1024
 #define BM_NATIVES_CAPACITY 1024
 
+#define BASM_MAX_INCLUDE_LEVEL 69
+#define BASM_MEMORY_CAPACITY (1000 * 1000 * 1000)
+
 typedef enum {
     ERR_OK = 0,
     ERR_STACK_OVERFLOW,
@@ -29,6 +32,8 @@ typedef enum {
 } Err;
 
 const char *err_as_cstr(Err err);
+
+#define SV_FORMAT(sv) (int) sv.count, sv.data
 
 typedef enum {
     INST_NOP = 0,
@@ -77,6 +82,11 @@ typedef struct {
 } Inst;
 
 
+typedef struct {
+    size_t count;
+    const char *data;
+} String_View;
+
 typedef struct Bm Bm;
 
 typedef Err (*Bm_Native)(Bm*);
@@ -93,22 +103,15 @@ typedef struct Bm {
 
     Bm_Native natives[BM_NATIVES_CAPACITY];
     size_t natives_size;
-
 } Bm;
 
 
 Err bm_execute_inst(Bm *bm);
 Err bm_execute_program(Bm *bm, int limit);
-void bm_dump_stack(FILE *stream, const Bm *bm);
 void bm_push_native(Bm *bm,Bm_Native native);
 void bm_load_program_from_memory(Bm *bm, Inst *program, size_t program_size);
 void bm_load_program_from_file(Bm *bm, const char *file_path);
 void bm_save_program_to_file(const Bm *bm, const char *file_path);
-
-typedef struct {
-    size_t count;
-    const char *data;
-} String_View;
 
 String_View cstr_as_sv(const char *cstr);
 String_View sv_trim_left(String_View sv);
@@ -117,7 +120,6 @@ String_View sv_trim(String_View sv);
 String_View sv_chop_by_delim(String_View *sv, char delim);
 int sv_eq(String_View a, String_View b);
 int sv_to_int(String_View sv);
-String_View sv_slurp_file(const char *file_path);
 
 typedef struct {
     String_View name;
@@ -129,11 +131,22 @@ typedef struct {
     String_View label;
 } Deferred_Operand;
 
+typedef struct{
+    String_View label;
+    uint64_t operand;
+}Native_label;
+
 typedef struct {
     Label labels[LABEL_CAPACITY];
     size_t labels_size;
     Deferred_Operand deferred_operands[DEFERRED_OPERANDS_CAPACITY];
     size_t deferred_operands_size;
+
+    Native_label native_labels[BM_NATIVES_CAPACITY];
+    size_t native_labels_size;
+
+    char memory[BASM_MEMORY_CAPACITY];
+    size_t memory_size;
 } Basm;
 
 Inst_Addr basm_find_label_addr(const Basm *basm, String_View name);
@@ -143,6 +156,8 @@ void basm_push_deferred_operand(Basm *basm, Inst_Addr addr, String_View label);
 void bm_translate_source(String_View source, Bm *bm, Basm *basm);
 
 Word number_literal_as_word(String_View sv);
+String_View basm_slurp_file(Basm *basm, String_View file_path);
+void *basm_alloc(Basm *basm, size_t size);
 
 #endif  // BM_H_
 
@@ -381,7 +396,7 @@ Err bm_execute_inst(Bm *bm)
         if(inst.operand.as_u64 > bm->natives_size){
             return ERR_ILLEGAL_OPERAND;
         }
-
+       
         bm->natives[inst.operand.as_u64](bm);
         bm->ip += 1;
         break;
@@ -478,21 +493,13 @@ Err bm_execute_inst(Bm *bm)
     return ERR_OK;
 }
 
-
-void bm_dump_stack(FILE *stream, const Bm *bm)
+void *basm_alloc(Basm *basm, size_t size)
 {
-    fprintf(stream, "Stack:\n");
-    if (bm->stack_size > 0) {
-        for (Inst_Addr i = 0; i < bm->stack_size; ++i) {
-            fprintf(stream, "  u64: %" PRIu64 ", i64: %" PRId64 ", f64: %lf, ptr: %p\n",
-                    bm->stack[i].as_u64,
-                    bm->stack[i].as_i64,
-                    bm->stack[i].as_f64,
-                    bm->stack[i].as_ptr);
-        }
-    } else {
-        fprintf(stream, "  [empty]\n");
-    }
+    assert(basm->memory_size + size <= BASM_MEMORY_CAPACITY);
+
+    void *result = basm->memory + basm->memory_size;
+    basm->memory_size += size;
+    return result;
 }
 
 void bm_load_program_from_memory(Bm *bm, Inst *program, size_t program_size)
@@ -698,6 +705,26 @@ Word number_literal_as_word(String_View sv)
     return result;
 }
 
+void bm_translate_dep(String_View file_path, Basm *basm)
+{
+    String_View source = basm_slurp_file(basm,file_path);
+
+    while(source.count > 0){
+         String_View token = sv_trim(sv_chop_by_delim(&source,'\n'));
+         String_View name_of_native = sv_trim(sv_chop_by_delim(&token,' '));
+
+         name_of_native.count -= 1;
+         name_of_native.data += 1;
+         if(!sv_eq(name_of_native,cstr_as_sv("label")))
+            continue;
+
+         name_of_native = sv_trim(sv_chop_by_delim(&token,' '));
+         
+         uint64_t operand = sv_to_int(token);     
+         basm->native_labels[basm->native_labels_size++] = (Native_label){.label = name_of_native,.operand = operand};
+    }
+}
+
 void bm_translate_source(String_View source, Bm *bm, Basm *basm)
 {
     bm->program_size = 0;
@@ -706,154 +733,191 @@ void bm_translate_source(String_View source, Bm *bm, Basm *basm)
     while (source.count > 0) {
         assert(bm->program_size < BM_PROGRAM_CAPACITY);
         String_View line = sv_trim(sv_chop_by_delim(&source, '\n'));
-        if (line.count > 0 && *line.data != '#') {
-            String_View token = sv_chop_by_delim(&line, ' ');
 
-            if (token.count > 0 && token.data[token.count - 1] == ':') {
-                String_View label = {
-                    .count = token.count - 1,
-                    .data = token.data
-                };
-
-                basm_push_label(basm, label, bm->program_size);
-
-                token = sv_trim(sv_chop_by_delim(&line, ' '));
-            }
-
-            if (token.count > 0) {
-                String_View operand = sv_trim(sv_chop_by_delim(&line, '#'));
-
-                if (sv_eq(token, cstr_as_sv(inst_name(INST_NOP)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_NOP,
+        if(line.count > 0 && *line.data == '%')
+        {
+              line.count -= 1;
+              line.data += 1;
+              String_View name = sv_trim(sv_chop_by_delim(&line,' '));
+              if(sv_eq(name,cstr_as_sv("include"))){
+                 line = sv_trim(sv_chop_by_delim(&line,'\n'));
+                 bm_translate_dep(line,basm);
+              }
+              else{
+                fprintf(stderr,"WRONG FORMAT Cant open file: ");
+                exit(1);
+              }
+        }
+        else 
+        {
+            if (line.count > 0 && *line.data != '#') {
+                String_View token = sv_chop_by_delim(&line, ' ');
+    
+                if (token.count > 0 && token.data[token.count - 1] == ':') {
+                    String_View label = {
+                        .count = token.count - 1,
+                        .data = token.data
                     };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_PUSH)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_PUSH,
-                        .operand = number_literal_as_word(operand),
-                    };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_DUP)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_DUP,
-                        .operand = { .as_i64 = sv_to_int(operand) }
-                    };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_PLUSI)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_PLUSI
-                    };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MINUSI)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_MINUSI
-                    };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_DIVI)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_DIVI
-                    };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MULTI)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_MULTI
-                    };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_JMP)))) {
-                    if (operand.count > 0 && isdigit(*operand.data)) {
+    
+                    basm_push_label(basm, label, bm->program_size);
+    
+                    token = sv_trim(sv_chop_by_delim(&line, ' '));
+                }
+               else  if (token.count > 0) {
+                    String_View operand = sv_trim(sv_chop_by_delim(&line, '#'));
+    
+                    if (sv_eq(token, cstr_as_sv(inst_name(INST_NOP)))) {
                         bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_JMP,
+                            .type = INST_NOP,
+                        };
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_PUSH)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_PUSH,
+                            .operand = number_literal_as_word(operand),
+                        };           
+                    }else if (sv_eq(token, cstr_as_sv(inst_name(INST_DUP)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_DUP,
+                            .operand = { .as_i64 = sv_to_int(operand) }
+                        };
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_PLUSI)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_PLUSI
+                        };
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MINUSI)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_MINUSI
+                        };
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_DIVI)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_DIVI
+                        };
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MULTI)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_MULTI
+                        };
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_JMP)))) {
+                        if (operand.count > 0 && isdigit(*operand.data)) {
+                            bm->program[bm->program_size++] = (Inst) {
+                                .type = INST_JMP,
+                                .operand = { .as_i64 = sv_to_int(operand) },
+                            };
+                        } else {
+                            basm_push_deferred_operand(
+                                basm, bm->program_size, operand);
+    
+                            bm->program[bm->program_size++] = (Inst) {
+                                .type = INST_JMP
+                            };
+                        }
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_JMP_IF)))) {
+                        if (operand.count > 0 && isdigit(*operand.data)) {
+                            bm->program[bm->program_size++] = (Inst) {
+                                .type = INST_JMP_IF,
+                                .operand = { .as_i64 = sv_to_int(operand) },
+                            };
+                        } else {
+                            basm_push_deferred_operand(
+                                basm, bm->program_size, operand);
+    
+                            bm->program[bm->program_size++] = (Inst) {
+                                .type = INST_JMP_IF,
+                            };
+                        }
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_CALL)))) {
+                        if (operand.count > 0 && isdigit(*operand.data)) {
+                            bm->program[bm->program_size++] = (Inst) {
+                                .type = INST_CALL,
+                                .operand = { .as_i64 = sv_to_int(operand) },
+                            };
+                        } else {
+                            basm_push_deferred_operand(
+                                basm, bm->program_size, operand);
+    
+                            bm->program[bm->program_size++] = (Inst) {
+                                .type = INST_CALL,
+                            };
+                        }
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_HALT)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_HALT
+                        };
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_PLUSF)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_PLUSF
+                        };
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MINUSF)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_MINUSF
+                        };
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_DIVF)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_DIVF
+                        };
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MULTF)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_MULTF
+                        };
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_SWAP)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_SWAP,
                             .operand = { .as_i64 = sv_to_int(operand) },
                         };
+                        
+                    }else if (sv_eq(token, cstr_as_sv(inst_name(INST_NATIVE)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_NATIVE,
+                            .operand = { .as_u64 = 0},
+                        };
+    
+                        operand = sv_trim(sv_chop_by_delim(&operand,'\n'));
+                        for (size_t i = 0; i < basm->native_labels_size; i++)
+                        {
+                           if(sv_eq(basm->native_labels[i].label,operand))
+                           {
+                            printf("LABEL: ");
+                            for (size_t i = 0; i < operand.count; i++)
+                            {
+                               printf("%c",operand.data[i]);
+                            }
+                            printf("\n");
+ 
+                            printf("OPERAND: % " PRIu64 "\n",basm->native_labels[i].operand);
+                              bm->program[bm->program_size - 1].operand.as_u64 = basm->native_labels[i].operand;
+                             break;
+                            }
+                        }
+                        
+                        
+                    }  else if (sv_eq(token, cstr_as_sv(inst_name(INST_EQ)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_EQ,
+                        };
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_GEF)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_GEF,
+                        };
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_NOT)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_NOT,
+                        };
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_DROP)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_DROP,
+                        };
+                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_RET)))) {
+                        bm->program[bm->program_size++] = (Inst) {
+                            .type = INST_RET,
+                        };
                     } else {
-                        basm_push_deferred_operand(
-                            basm, bm->program_size, operand);
-
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_JMP
-                        };
-                    }
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_JMP_IF)))) {
-                    if (operand.count > 0 && isdigit(*operand.data)) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_JMP_IF,
-                            .operand = { .as_i64 = sv_to_int(operand) },
-                        };
-                    } else {
-                        basm_push_deferred_operand(
-                            basm, bm->program_size, operand);
-
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_JMP_IF,
-                        };
-                    }
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_CALL)))) {
-                    if (operand.count > 0 && isdigit(*operand.data)) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_CALL,
-                            .operand = { .as_i64 = sv_to_int(operand) },
-                        };
-                    } else {
-                        basm_push_deferred_operand(
-                            basm, bm->program_size, operand);
-
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_CALL,
-                        };
-                    }
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_HALT)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_HALT
-                    };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_PLUSF)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_PLUSF
-                    };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MINUSF)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_MINUSF
-                    };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_DIVF)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_DIVF
-                    };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MULTF)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_MULTF
-                    };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_SWAP)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_SWAP,
-                        .operand = { .as_i64 = sv_to_int(operand) },
-                    };
-                    
-                }else if (sv_eq(token, cstr_as_sv(inst_name(INST_NATIVE)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_NATIVE,
-                        .operand = { .as_i64 = sv_to_int(operand) },
-                    };
-                }  else if (sv_eq(token, cstr_as_sv(inst_name(INST_EQ)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_EQ,
-                    };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_GEF)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_GEF,
-                    };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_NOT)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_NOT,
-                    };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_DROP)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_DROP,
-                    };
-                } else if (sv_eq(token, cstr_as_sv(inst_name(INST_RET)))) {
-                    bm->program[bm->program_size++] = (Inst) {
-                        .type = INST_RET,
-                    };
-                } else {
-                    fprintf(stderr, "ERROR: unknown instruction `%.*s`\n",
-                            (int) token.count, token.data);
-                    exit(1);
+                        fprintf(stderr, "ERROR: unknown instruction `%.*s`\n",
+                                (int) token.count, token.data);
+                        exit(1);
+                    }              
                 }
             }
         }
-    }
+  }
 
     // Second pass
     for (size_t i = 0; i < basm->deferred_operands_size; ++i) {
@@ -862,29 +926,40 @@ void bm_translate_source(String_View source, Bm *bm, Basm *basm)
     }
 }
 
-String_View sv_slurp_file(const char *file_path)
+String_View basm_slurp_file(Basm *basm, String_View file_path)
 {
-    FILE *f = fopen(file_path, "r");
+    char *file_path_cstr = basm_alloc(basm, file_path.count + 1);
+    if (file_path_cstr == NULL) {
+        fprintf(stderr,
+                "ERROR: Could not allocate memory for the file path `%.*s`: %s\n",
+                SV_FORMAT(file_path), strerror(errno));
+        exit(1);
+    }
+
+    memcpy(file_path_cstr, file_path.data, file_path.count);
+    file_path_cstr[file_path.count] = '\0';
+
+    FILE *f = fopen(file_path_cstr, "r");
     if (f == NULL) {
         fprintf(stderr, "ERROR: Could not read file `%s`: %s\n",
-                file_path, strerror(errno));
+                file_path_cstr, strerror(errno));
         exit(1);
     }
 
     if (fseek(f, 0, SEEK_END) < 0) {
         fprintf(stderr, "ERROR: Could not read file `%s`: %s\n",
-                file_path, strerror(errno));
+                file_path_cstr, strerror(errno));
         exit(1);
     }
 
     long m = ftell(f);
     if (m < 0) {
         fprintf(stderr, "ERROR: Could not read file `%s`: %s\n",
-                file_path, strerror(errno));
+                file_path_cstr, strerror(errno));
         exit(1);
     }
 
-    char *buffer = malloc(m);
+    char *buffer = basm_alloc(basm, m);
     if (buffer == NULL) {
         fprintf(stderr, "ERROR: Could not allocate memory for file: %s\n",
                 strerror(errno));
@@ -893,14 +968,14 @@ String_View sv_slurp_file(const char *file_path)
 
     if (fseek(f, 0, SEEK_SET) < 0) {
         fprintf(stderr, "ERROR: Could not read file `%s`: %s\n",
-                file_path, strerror(errno));
+                file_path_cstr, strerror(errno));
         exit(1);
     }
 
     size_t n = fread(buffer, 1, m, f);
     if (ferror(f)) {
         fprintf(stderr, "ERROR: Could not read file `%s`: %s\n",
-                file_path, strerror(errno));
+                file_path_cstr, strerror(errno));
         exit(1);
     }
 
