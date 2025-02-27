@@ -105,22 +105,6 @@ typedef struct Bm {
     size_t natives_size;
 } Bm;
 
-
-Err bm_execute_inst(Bm *bm);
-Err bm_execute_program(Bm *bm, int limit);
-void bm_push_native(Bm *bm,Bm_Native native);
-void bm_load_program_from_memory(Bm *bm, Inst *program, size_t program_size);
-void bm_load_program_from_file(Bm *bm, const char *file_path);
-void bm_save_program_to_file(const Bm *bm, const char *file_path);
-
-String_View cstr_as_sv(const char *cstr);
-String_View sv_trim_left(String_View sv);
-String_View sv_trim_right(String_View sv);
-String_View sv_trim(String_View sv);
-String_View sv_chop_by_delim(String_View *sv, char delim);
-int sv_eq(String_View a, String_View b);
-int sv_to_int(String_View sv);
-
 typedef struct {
     String_View name;
     Inst_Addr addr;
@@ -149,14 +133,32 @@ typedef struct {
     size_t memory_size;
 } Basm;
 
+
+Err bm_execute_inst(Bm *bm);
+Err bm_execute_program(Bm *bm, int limit);
+void bm_push_native(Bm *bm,Bm_Native native);
+void bm_load_program_from_memory(Bm *bm, Inst *program, size_t program_size);
+void bm_load_program_from_file(Bm *bm, const char *file_path);
+void bm_save_program_to_file(const Bm *bm, const char *file_path);
+void bm_translate_source(String_View source, Bm *bm, Basm *basm);
+
+String_View cstr_as_sv(const char *cstr);
+String_View sv_trim_left(String_View sv);
+String_View sv_trim_right(String_View sv);
+String_View sv_trim(String_View sv);
+String_View sv_chop_by_delim(String_View *sv, char delim);
+String_View basm_slurp_file(Basm *basm, String_View file_path);
+int sv_eq(String_View a, String_View b);
+int sv_to_int(String_View sv);
+
+
 Inst_Addr basm_find_label_addr(const Basm *basm, String_View name);
 void basm_push_label(Basm *basm, String_View name, Inst_Addr addr);
 void basm_push_deferred_operand(Basm *basm, Inst_Addr addr, String_View label);
 
-void bm_translate_source(String_View source, Bm *bm, Basm *basm);
 
 Word number_literal_as_word(String_View sv);
-String_View basm_slurp_file(Basm *basm, String_View file_path);
+uint64_t check_for_native_func(String_View source,Basm *basm);
 void *basm_alloc(Basm *basm, size_t size);
 
 #endif  // BM_H_
@@ -509,7 +511,6 @@ void bm_load_program_from_memory(Bm *bm, Inst *program, size_t program_size)
     bm->program_size = program_size;
 }
 
-
 void bm_load_program_from_file(Bm *bm, const char *file_path)
 {
     FILE *f = fopen(file_path, "rb");
@@ -551,7 +552,6 @@ void bm_load_program_from_file(Bm *bm, const char *file_path)
 
     fclose(f);
 }
-
 
 void bm_save_program_to_file(const Bm *bm, const char *file_path)
 {
@@ -616,7 +616,7 @@ String_View sv_trim(String_View sv)
 String_View sv_chop_by_delim(String_View *sv, char delim)
 {
     size_t i = 0;
-    while (i < sv->count && sv->data[i] != delim) {
+    while (i < sv->count && sv->data[i] != delim && sv->data[i] != '\n') {
         i += 1;
     }
 
@@ -715,14 +715,29 @@ void bm_translate_dep(String_View file_path, Basm *basm)
 
          name_of_native.count -= 1;
          name_of_native.data += 1;
-         if(!sv_eq(name_of_native,cstr_as_sv("label")))
-            continue;
+         if(!sv_eq(name_of_native,cstr_as_sv("label"))){
+            fprintf(stderr,"INVALID EXPRESSION: %s\n",name_of_native.data);
+            exit(1);
+         }
 
          name_of_native = sv_trim(sv_chop_by_delim(&token,' '));
          
-         uint64_t operand = sv_to_int(token);     
+         uint64_t operand = number_literal_as_word(token).as_u64;     
          basm->native_labels[basm->native_labels_size++] = (Native_label){.label = name_of_native,.operand = operand};
     }
+}
+
+uint64_t check_for_native_func(String_View source,Basm *basm)
+{
+    for (size_t i = 0; i < basm->native_labels_size; ++i)
+    {
+       if(sv_eq(basm->native_labels[i].label,source))
+       {
+          return basm->native_labels[i].operand;
+       }
+    }
+        fprintf(stderr,"CANT  FIND NATIVE FUNC: %s \n",source.data);
+        exit(1);
 }
 
 void bm_translate_source(String_View source, Bm *bm, Basm *basm)
@@ -867,28 +882,8 @@ void bm_translate_source(String_View source, Bm *bm, Basm *basm)
                     }else if (sv_eq(token, cstr_as_sv(inst_name(INST_NATIVE)))) {
                         bm->program[bm->program_size++] = (Inst) {
                             .type = INST_NATIVE,
-                            .operand = { .as_u64 = 0},
+                            .operand = { .as_u64 = check_for_native_func(operand,basm)},
                         };
-    
-                        operand = sv_trim(sv_chop_by_delim(&operand,'\n'));
-                        for (size_t i = 0; i < basm->native_labels_size; i++)
-                        {
-                           if(sv_eq(basm->native_labels[i].label,operand))
-                           {
-                            printf("LABEL: ");
-                            for (size_t i = 0; i < operand.count; i++)
-                            {
-                               printf("%c",operand.data[i]);
-                            }
-                            printf("\n");
- 
-                            printf("OPERAND: % " PRIu64 "\n",basm->native_labels[i].operand);
-                              bm->program[bm->program_size - 1].operand.as_u64 = basm->native_labels[i].operand;
-                             break;
-                            }
-                        }
-                        
-                        
                     }  else if (sv_eq(token, cstr_as_sv(inst_name(INST_EQ)))) {
                         bm->program[bm->program_size++] = (Inst) {
                             .type = INST_EQ,
