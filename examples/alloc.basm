@@ -1,15 +1,30 @@
-   #including native functions to basm program
-%include natives.hasm
-   jmp main
+;; TODO: basm include directive has no support for include paths
+%include "./examples/natives.hasm"
+%label N 30
 
+; N-1
+; F_1+F_0
+; F_1
+main:
+   push 0                       ; F_0
+   push 1                       ; F_1
+   push N                       ; N - the amount of iterations
+loop:
+   swap 2
+   dup 0
+   native print_u64
+   dup 1
+   plusi
+   swap 1
+   swap 2
+   push 1
+   minusi
 
-main:  
-   push 5 
-   native alloc
-   native print_ptr
-   native free
-   push 2.0
-   push 4.0
-   plusf
-   native print_f64
+   dup 0
+   push 0
+   eq
+
+   not
+
+   jmp_if loop
    halt
