@@ -152,6 +152,7 @@ int sv_eq(String_View a, String_View b);
 int sv_to_int(String_View sv);
 
 
+
 Inst_Addr basm_find_label_addr(const Basm *basm, String_View name);
 void basm_push_label(Basm *basm, String_View name, Inst_Addr addr);
 void basm_push_deferred_operand(Basm *basm, Inst_Addr addr, String_View label);
@@ -160,10 +161,25 @@ void basm_push_deferred_operand(Basm *basm, Inst_Addr addr, String_View label);
 Word number_literal_as_word(String_View sv);
 uint64_t check_for_native_func(String_View source,Basm *basm);
 void *basm_alloc(Basm *basm, size_t size);
+int inst_by_name(String_View name, Inst_Type *output);
+const char *inst_name(Inst_Type type);
+int inst_has_operand(Inst_Type type);
 
 #endif  // BM_H_
 
 #ifdef BM_IMPLEMENTATION
+
+int inst_by_name(String_View name, Inst_Type *output)
+{
+    for (Inst_Type type = (Inst_Type) 0; type < NUMBER_OF_INSTS; type += 1) {
+        if (sv_eq(cstr_as_sv(inst_name(type)), name)) {
+            *output = type;
+            return 1;
+        }
+    }
+
+    return 0;
+}
 
 int inst_has_operand(Inst_Type type)
 {
@@ -188,7 +204,7 @@ int inst_has_operand(Inst_Type type)
     case INST_NOT:         return 0;
     case INST_GEF:         return 0;
     case INST_RET:         return 0;
-    case INST_NATIVE:         return 1;
+    case INST_NATIVE:      return 1;
     case INST_CALL:        return 1;
     case NUMBER_OF_INSTS:
     default: assert(0 && "inst_has_operand: unreachable");
@@ -780,139 +796,56 @@ void bm_translate_source(String_View source, Bm *bm, Basm *basm)
                 }
                else  if (token.count > 0) {
                     String_View operand = sv_trim(sv_chop_by_delim(&line, '#'));
-    
-                    if (sv_eq(token, cstr_as_sv(inst_name(INST_NOP)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_NOP,
-                        };
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_PUSH)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_PUSH,
-                            .operand = number_literal_as_word(operand),
-                        };           
-                    }else if (sv_eq(token, cstr_as_sv(inst_name(INST_DUP)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_DUP,
-                            .operand = { .as_i64 = sv_to_int(operand) }
-                        };
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_PLUSI)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_PLUSI
-                        };
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MINUSI)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_MINUSI
-                        };
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_DIVI)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_DIVI
-                        };
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MULTI)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_MULTI
-                        };
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_JMP)))) {
-                        if (operand.count > 0 && isdigit(*operand.data)) {
-                            bm->program[bm->program_size++] = (Inst) {
-                                .type = INST_JMP,
-                                .operand = { .as_i64 = sv_to_int(operand) },
-                            };
-                        } else {
-                            basm_push_deferred_operand(
-                                basm, bm->program_size, operand);
-    
-                            bm->program[bm->program_size++] = (Inst) {
-                                .type = INST_JMP
-                            };
+                    
+                    Inst_Type inst_type = INST_NOP;
+                    if(inst_by_name(token,&inst_type) && inst_type != INST_NOP){
+                        if(!inst_has_operand(inst_type)){
+                          bm->program[bm->program_size] = (Inst) {
+                            .type = inst_type,
+                          };
                         }
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_JMP_IF)))) {
-                        if (operand.count > 0 && isdigit(*operand.data)) {
-                            bm->program[bm->program_size++] = (Inst) {
-                                .type = INST_JMP_IF,
-                                .operand = { .as_i64 = sv_to_int(operand) },
-                            };
-                        } else {
-                            basm_push_deferred_operand(
-                                basm, bm->program_size, operand);
-    
-                            bm->program[bm->program_size++] = (Inst) {
-                                .type = INST_JMP_IF,
-                            };
+                        else{
+                             if(inst_type == INST_NATIVE){
+                                bm->program[bm->program_size] = (Inst) {
+                                    .type = INST_NATIVE,
+                                    .operand = { .as_u64 = check_for_native_func(operand,basm)},
+                                };    
+                            }
+                            else if(inst_type == INST_PUSH){
+                                bm->program[bm->program_size++] = (Inst) {
+                                    .type = INST_PUSH,
+                                    .operand = number_literal_as_word(operand),
+                                };       
+                            }
+                            else if(!sv_to_int(operand)){
+                                if (operand.count > 0 && isdigit(*operand.data)) {
+                                    bm->program[bm->program_size] = (Inst) {
+                                        .type = inst_type,
+                                        .operand = { .as_i64 = sv_to_int(operand) },
+                                    };
+                                } else {
+                                    basm_push_deferred_operand(
+                                        basm, bm->program_size, operand);
+            
+                                    bm->program[bm->program_size] = (Inst) {
+                                        .type = inst_type,
+                                    };
+                                }
+                            }
+                            else{
+                               bm->program[bm->program_size] = (Inst) {
+                                   .type = inst_type,
+                                   .operand = { .as_i64 = sv_to_int(operand) },
+                               };
+                            }
                         }
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_CALL)))) {
-                        if (operand.count > 0 && isdigit(*operand.data)) {
-                            bm->program[bm->program_size++] = (Inst) {
-                                .type = INST_CALL,
-                                .operand = { .as_i64 = sv_to_int(operand) },
-                            };
-                        } else {
-                            basm_push_deferred_operand(
-                                basm, bm->program_size, operand);
-    
-                            bm->program[bm->program_size++] = (Inst) {
-                                .type = INST_CALL,
-                            };
-                        }
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_HALT)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_HALT
-                        };
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_PLUSF)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_PLUSF
-                        };
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MINUSF)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_MINUSF
-                        };
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_DIVF)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_DIVF
-                        };
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MULTF)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_MULTF
-                        };
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_SWAP)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_SWAP,
-                            .operand = { .as_i64 = sv_to_int(operand) },
-                        };
-                        
-                    }else if (sv_eq(token, cstr_as_sv(inst_name(INST_NATIVE)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_NATIVE,
-                            .operand = { .as_u64 = check_for_native_func(operand,basm)},
-                        };
-                    }  else if (sv_eq(token, cstr_as_sv(inst_name(INST_EQ)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_EQ,
-                        };
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_GEF)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_GEF,
-                        };
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_NOT)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_NOT,
-                        };
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_DROP)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_DROP,
-                        };
-                    } else if (sv_eq(token, cstr_as_sv(inst_name(INST_RET)))) {
-                        bm->program[bm->program_size++] = (Inst) {
-                            .type = INST_RET,
-                        };
-                    } else {
-                        fprintf(stderr, "ERROR: unknown instruction `%.*s`\n",
-                                (int) token.count, token.data);
-                        exit(1);
-                    }              
+                    }
+
+                    bm->program_size += 1;                    
                 }
             }
         }
-  }
+    }
 
     // Second pass
     for (size_t i = 0; i < basm->deferred_operands_size; ++i) {

@@ -1,6 +1,10 @@
+   #including native functions to basm program
 %include natives.hasm
-  
-   push 5
+   jmp main
+
+
+main:  
+   push 5 
    native alloc
    native print_ptr
    native free
