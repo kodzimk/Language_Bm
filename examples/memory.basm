@@ -1,0 +1,20 @@
+%include "./examples/natives.hasm"
+
+%label N 10
+
+    push 0
+loop:
+    dup 0
+    dup 0
+    write8
+
+    push 1
+    plusi
+
+    dup 0
+    push N
+    eq
+
+    jmp_if loop
+
+    halt

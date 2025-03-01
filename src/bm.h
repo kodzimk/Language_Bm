@@ -18,7 +18,8 @@
 #define LABEL_CAPACITY 1024
 #define DEFERRED_OPERANDS_CAPACITY 1024
 #define NUMBER_LITERAL_CAPACITY 1024
-#define BM_MEMORY_CAPACITY (640 * 1000)
+//#define BM_MEMORY_CAPACITY (640 * 1000)
+#define BM_MEMORY_CAPACITY 20
 
 #define BASM_COMMENT_SYMBOL ';'
 #define BASM_PP_SYMBOL '%'
@@ -578,17 +579,41 @@ Err bm_execute_inst(Bm *bm)
         bm->stack_size -= 2;
     }break;
 
-    case INST_WRITE16:
-        assert(false && "WRITE16 is nort implemented");
-        break;
+    case INST_WRITE16:{
+       if(bm->stack_size < 2){
+         return ERR_STACK_UNDERFLOW;
+        }
+        const Memory_Addr addr = bm->stack[bm->stack_size - 2].as_u64;
+        if(addr >= BM_MEMORY_CAPACITY - 1){
+        return BM_ILLEGAL_MEMORY_ACCESS;
+       }
+        *(uint16_t*)&bm->memory[addr] = (uint16_t)bm->stack[bm->stack_size - 1].as_u64;
+        bm->stack_size -= 2;
+      }break;
 
-    case INST_WRITE32:
-        assert(false && "WRITE32 is nort implemented");
-        break;
+    case INST_WRITE32:{
+        if(bm->stack_size < 2){
+          return ERR_STACK_UNDERFLOW;
+         }
+         const Memory_Addr addr = bm->stack[bm->stack_size - 2].as_u64;
+         if(addr >= BM_MEMORY_CAPACITY - 3){
+         return BM_ILLEGAL_MEMORY_ACCESS;
+        }
+         *(uint32_t*)&bm->memory[addr] =  (uint32_t)bm->stack[bm->stack_size - 1].as_u64;
+         bm->stack_size -= 2;
+       }break;
 
-    case INST_WRITE64:
-        assert(false && "WRITE64 is nort implemented");
-        break;
+    case INST_WRITE64:{
+        if(bm->stack_size < 2){
+          return ERR_STACK_UNDERFLOW;
+         }
+         const Memory_Addr addr = bm->stack[bm->stack_size - 2].as_u64;
+         if(addr >= BM_MEMORY_CAPACITY - 7){
+         return BM_ILLEGAL_MEMORY_ACCESS;
+        }
+         *(uint64_t*)&bm->memory[addr] =  bm->stack[bm->stack_size - 1].as_u64;
+         bm->stack_size -= 2;
+       }break;
 
     case NUMBER_OF_INSTS:
     default:
@@ -650,7 +675,7 @@ void bm_load_program_from_file(Bm *bm, const char *file_path)
         exit(1);
     }
 
-    assert(m % sizeof(bm->program[0]) == 0);
+    assert((size_t) m % sizeof(bm->program[0]) == 0);
     assert((size_t) m <= BM_PROGRAM_CAPACITY * sizeof(bm->program[0]));
 
     if (fseek(f, 0, SEEK_SET) < 0) {
@@ -659,7 +684,7 @@ void bm_load_program_from_file(Bm *bm, const char *file_path)
         exit(1);
     }
 
-    bm->program_size = fread(bm->program, sizeof(bm->program[0]), m / sizeof(bm->program[0]), f);
+    bm->program_size = fread(bm->program, sizeof(bm->program[0]), (size_t)m / sizeof(bm->program[0]), f);
 
     if (ferror(f)) {
         fprintf(stderr, "ERROR: Could not consume file %s: %s\n",
@@ -1025,7 +1050,7 @@ String_View sv_slurp_file(String_View file_path)
         exit(1);
     }
 
-    char *buffer = malloc(m);
+    char *buffer = malloc((size_t)m);
     if (buffer == NULL) {
         fprintf(stderr, "ERROR: Could not allocate memory for file: %s\n",
                 strerror(errno));
@@ -1036,9 +1061,10 @@ String_View sv_slurp_file(String_View file_path)
         fprintf(stderr, "ERROR: Could not read file `%s`: %s\n",
                 file_path_cstr, strerror(errno));
         exit(1);
+
     }
 
-    size_t n = fread(buffer, 1, m, f);
+    size_t n = fread(buffer, 1, (size_t)m, f);
     if (ferror(f)) {
         fprintf(stderr, "ERROR: Could not read file `%s`: %s\n",
                 file_path_cstr, strerror(errno));

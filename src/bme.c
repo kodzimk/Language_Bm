@@ -73,6 +73,16 @@ static Err bm_print_u64(Bm *bm)
     return ERR_OK;
 }
 
+void bm_dump_memory(FILE *stream,Bm *bm)
+{
+    fprintf(stream,"Memory: ");
+    for (size_t i = 0; i < BM_MEMORY_CAPACITY; ++i)
+    {
+       fprintf(stream,"%02X ",bm->memory[i]);
+    }
+    fprintf(stream,"\n");
+}
+
 static Err bm_print_ptr(Bm *bm)
 {
     if (bm->stack_size < 1) {
@@ -147,6 +157,7 @@ int main(int argc, char **argv)
     } else {
         while (limit != 0 && !bm.halt) {
             bm_dump_stack(stdout, &bm);
+            bm_dump_memory(stdout,&bm);
             printf("Instruction: %s %" PRIu64 "\n",
                    inst_name(bm.program[bm.ip].type),
                    bm.program[bm.ip].operand.as_u64);
