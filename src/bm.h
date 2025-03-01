@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <ctype.h>
 #include <inttypes.h>
+#include"stdbool.h"
 
 #define ARRAY_SIZE(xs) (sizeof(xs) / sizeof((xs)[0]))
 #define BM_STACK_CAPACITY 1024
@@ -17,10 +18,12 @@
 #define LABEL_CAPACITY 1024
 #define DEFERRED_OPERANDS_CAPACITY 1024
 #define NUMBER_LITERAL_CAPACITY 1024
+#define BM_MEMORY_CAPACITY (640 * 1000)
 
 #define BASM_COMMENT_SYMBOL ';'
 #define BASM_PP_SYMBOL '%'
 #define BASM_MAX_INCLUDE_LEVEL 69
+
 
 typedef struct {
     size_t count;
@@ -46,6 +49,7 @@ typedef enum {
     ERR_ILLEGAL_INST_ACCESS,
     ERR_ILLEGAL_OPERAND,
     ERR_DIV_BY_ZERO,
+    BM_ILLEGAL_MEMORY_ACCESS,
 } Err;
 
 const char *err_as_cstr(Err err);
@@ -75,6 +79,14 @@ typedef enum {
     INST_HALT,
     INST_NOT,
     INST_GEF,
+    INST_READ8,
+    INST_READ16,
+    INST_READ32,
+    INST_READ64,
+    INST_WRITE8,
+    INST_WRITE16,
+    INST_WRITE32,
+    INST_WRITE64,
     NUMBER_OF_INSTS,
 } Inst_Type;
 
@@ -83,6 +95,7 @@ int inst_has_operand(Inst_Type type);
 int inst_by_name(String_View name, Inst_Type *output);
 
 typedef uint64_t Inst_Addr;
+typedef uint64_t Memory_Addr;
 
 typedef union {
     uint64_t as_u64;
@@ -114,7 +127,9 @@ struct Bm {
     Bm_Native natives[BM_NATIVES_CAPACITY];
     size_t natives_size;
 
-    int halt;
+    uint8_t memory[BM_MEMORY_CAPACITY];
+
+    bool halt;
 };
 
 Err bm_execute_inst(Bm *bm);
@@ -157,28 +172,36 @@ int number_literal_as_word(String_View sv, Word *output);
 int inst_has_operand(Inst_Type type)
 {
     switch (type) {
-    case INST_NOP:         return 0;
-    case INST_PUSH:        return 1;
-    case INST_DROP:        return 0;
-    case INST_DUP:         return 1;
-    case INST_PLUSI:       return 0;
-    case INST_MINUSI:      return 0;
-    case INST_MULTI:       return 0;
-    case INST_DIVI:        return 0;
-    case INST_PLUSF:       return 0;
-    case INST_MINUSF:      return 0;
-    case INST_MULTF:       return 0;
-    case INST_DIVF:        return 0;
-    case INST_JMP:         return 1;
-    case INST_JMP_IF:      return 1;
-    case INST_EQ:          return 0;
-    case INST_HALT:        return 0;
-    case INST_SWAP:        return 1;
-    case INST_NOT:         return 0;
-    case INST_GEF:         return 0;
-    case INST_RET:         return 0;
-    case INST_CALL:        return 1;
-    case INST_NATIVE:      return 1;
+    case INST_NOP:         return false;
+    case INST_PUSH:        return true;
+    case INST_DROP:        return false;
+    case INST_DUP:         return true;
+    case INST_PLUSI:       return false;
+    case INST_MINUSI:      return false;
+    case INST_MULTI:       return false;
+    case INST_DIVI:        return false;
+    case INST_PLUSF:       return false;
+    case INST_MINUSF:      return false;
+    case INST_MULTF:       return false;
+    case INST_DIVF:        return false;
+    case INST_JMP:         return true;
+    case INST_JMP_IF:      return true;
+    case INST_EQ:          return false;
+    case INST_HALT:        return false;
+    case INST_SWAP:        return true;
+    case INST_NOT:         return false;
+    case INST_GEF:         return false;
+    case INST_RET:         return false;
+    case INST_CALL:        return true;
+    case INST_NATIVE:      return true;
+    case INST_READ8:       return false;
+    case INST_READ16:      return false;
+    case INST_READ32:      return false;
+    case INST_READ64:      return false;
+    case INST_WRITE8:      return false;
+    case INST_WRITE16:     return false;
+    case INST_WRITE32:     return false;
+    case INST_WRITE64:     return false;
     case NUMBER_OF_INSTS:
     default: assert(0 && "inst_has_operand: unreachable");
         exit(1);
@@ -222,6 +245,14 @@ const char *inst_name(Inst_Type type)
     case INST_RET:         return "ret";
     case INST_CALL:        return "call";
     case INST_NATIVE:      return "native";
+    case INST_READ8:       return "read8";
+    case INST_READ16:      return "read16";
+    case INST_READ32:      return "read32";
+    case INST_READ64:      return "read64";
+    case INST_WRITE8:      return "write8";
+    case INST_WRITE16:     return "write16";
+    case INST_WRITE32:     return "write32";
+    case INST_WRITE64:     return "write64";
     case NUMBER_OF_INSTS:
     default: assert(0 && "inst_name: unreachable");
         exit(1);
@@ -243,6 +274,8 @@ const char *err_as_cstr(Err err)
         return "ERR_ILLEGAL_OPERAND";
     case ERR_ILLEGAL_INST_ACCESS:
         return "ERR_ILLEGAL_INST_ACCESS";
+        case BM_ILLEGAL_MEMORY_ACCESS:
+        return "BM_ILLEGAL_MEMORY_ACCESS";
     case ERR_DIV_BY_ZERO:
         return "ERR_DIV_BY_ZERO";
     default:
@@ -483,6 +516,78 @@ Err bm_execute_inst(Bm *bm)
 
         bm->stack[bm->stack_size - 1].as_u64 = !bm->stack[bm->stack_size - 1].as_u64;
         bm->ip += 1;
+        break;
+
+    case INST_READ8:{
+        if(bm->stack_size > 1){
+            return ERR_STACK_UNDERFLOW;
+        }
+        Memory_Addr addr = bm->stack[bm->stack_size - 1].as_u64;
+        if(addr >= BM_MEMORY_CAPACITY){
+            return BM_ILLEGAL_MEMORY_ACCESS;
+        }
+        bm->stack[bm->stack_size - 1].as_u64 = bm->memory[addr];
+    }
+    break;
+
+    case INST_READ16:{
+        if(bm->stack_size > 1){
+         return ERR_STACK_UNDERFLOW;
+        }
+        Memory_Addr addr = bm->stack[bm->stack_size - 1].as_u64;
+        if(addr >= BM_MEMORY_CAPACITY - 1){
+            return BM_ILLEGAL_MEMORY_ACCESS;
+        }
+        bm->stack[bm->stack_size - 1].as_u64 = *(uint16_t*)&bm->memory[addr];
+    }
+    break;
+    case INST_READ32:{
+        if(bm->stack_size > 1){
+         return ERR_STACK_UNDERFLOW;
+        }
+        Memory_Addr addr = bm->stack[bm->stack_size - 1].as_u64;
+        if(addr >= BM_MEMORY_CAPACITY - 3){
+            return BM_ILLEGAL_MEMORY_ACCESS;
+        }
+        bm->stack[bm->stack_size - 1].as_u64 = *(uint32_t*)&bm->memory[addr];
+    }
+    break;
+
+    case INST_READ64:{
+        if(bm->stack_size > 1){
+         return ERR_STACK_UNDERFLOW;
+        }
+        Memory_Addr addr = bm->stack[bm->stack_size - 1].as_u64;
+        if(addr >= BM_MEMORY_CAPACITY - 7){
+            return BM_ILLEGAL_MEMORY_ACCESS;
+        }
+        bm->stack[bm->stack_size - 1].as_u64 = *(uint64_t*)&bm->memory[addr];
+    }
+    break;
+
+    case INST_WRITE8:{
+        if(bm->stack_size < 2){
+            return ERR_STACK_UNDERFLOW;
+        }
+        const Memory_Addr addr = bm->stack[bm->stack_size - 2].as_u64;
+        if(addr >= BM_MEMORY_CAPACITY){
+            return BM_ILLEGAL_MEMORY_ACCESS;
+        }
+        
+        bm->memory[addr] = (uint8_t)bm->stack[bm->stack_size - 1].as_u64;
+        bm->stack_size -= 2;
+    }break;
+
+    case INST_WRITE16:
+        assert(false && "WRITE16 is nort implemented");
+        break;
+
+    case INST_WRITE32:
+        assert(false && "WRITE32 is nort implemented");
+        break;
+
+    case INST_WRITE64:
+        assert(false && "WRITE64 is nort implemented");
         break;
 
     case NUMBER_OF_INSTS:
