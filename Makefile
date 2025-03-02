@@ -14,7 +14,7 @@ debasm: ./src/debasm.c ./src/bm.h
 	$(CC) $(CFLAGS) -o debasm ./src/debasm.c $(LIBS)
 
 .PHONY: examples
-examples:  ./examples/alloc.bm ./examples/memory.bm
+examples:  ./examples/alloc.bm ./examples/memory.bm ./examples/hello.bm
 
 ./examples/alloc.bm: basm ./examples/alloc.basm
 	./basm ./examples/alloc.basm ./examples/alloc.bm
@@ -22,3 +22,6 @@ examples:  ./examples/alloc.bm ./examples/memory.bm
 	
 ./examples/memory.bm: basm ./examples/memory.basm
 	./basm ./examples/memory.basm ./examples/memory.bm
+
+./examples/hello.bm: basm ./examples/hello.basm
+	./basm ./examples/hello.basm ./examples/hello.bm
