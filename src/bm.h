@@ -18,8 +18,7 @@
 #define LABEL_CAPACITY 1024
 #define DEFERRED_OPERANDS_CAPACITY 1024
 #define NUMBER_LITERAL_CAPACITY 1024
-//#define BM_MEMORY_CAPACITY (640 * 1000)
-#define BM_MEMORY_CAPACITY 20
+#define BM_MEMORY_CAPACITY (640 * 1000)
 
 #define BASM_COMMENT_SYMBOL ';'
 #define BASM_PP_SYMBOL '%'
@@ -703,7 +702,6 @@ void bm_load_program_from_file(Bm *bm, const char *file_path)
     fclose(f);
 }
 
-
 void bm_save_program_to_file(const Bm *bm, const char *file_path)
 {
     FILE *f = fopen(file_path, "wb");
@@ -731,7 +729,6 @@ String_View cstr_as_sv(const char *cstr)
         .data = cstr,
     };
 }
-
 
 String_View sv_trim_left(String_View sv)
 {
