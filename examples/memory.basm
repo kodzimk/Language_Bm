@@ -1,6 +1,6 @@
 %include "./examples/natives.hasm"
 
-%label N 10
+%label N 20
 
     push 0
 loop:
@@ -14,6 +14,7 @@ loop:
     dup 0
     push N
     eq
+    not
 
     jmp_if loop
 

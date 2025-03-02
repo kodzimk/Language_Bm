@@ -528,6 +528,7 @@ Err bm_execute_inst(Bm *bm)
             return BM_ILLEGAL_MEMORY_ACCESS;
         }
         bm->stack[bm->stack_size - 1].as_u64 = bm->memory[addr];
+        bm->ip += 1;
     }
     break;
 
@@ -540,6 +541,7 @@ Err bm_execute_inst(Bm *bm)
             return BM_ILLEGAL_MEMORY_ACCESS;
         }
         bm->stack[bm->stack_size - 1].as_u64 = *(uint16_t*)&bm->memory[addr];
+        bm->ip += 1;
     }
     break;
     case INST_READ32:{
@@ -551,6 +553,7 @@ Err bm_execute_inst(Bm *bm)
             return BM_ILLEGAL_MEMORY_ACCESS;
         }
         bm->stack[bm->stack_size - 1].as_u64 = *(uint32_t*)&bm->memory[addr];
+        bm->ip += 1;
     }
     break;
 
@@ -563,6 +566,7 @@ Err bm_execute_inst(Bm *bm)
             return BM_ILLEGAL_MEMORY_ACCESS;
         }
         bm->stack[bm->stack_size - 1].as_u64 = *(uint64_t*)&bm->memory[addr];
+        bm->ip += 1;
     }
     break;
 
@@ -577,6 +581,7 @@ Err bm_execute_inst(Bm *bm)
         
         bm->memory[addr] = (uint8_t)bm->stack[bm->stack_size - 1].as_u64;
         bm->stack_size -= 2;
+        bm->ip += 1;
     }break;
 
     case INST_WRITE16:{
@@ -589,6 +594,7 @@ Err bm_execute_inst(Bm *bm)
        }
         *(uint16_t*)&bm->memory[addr] = (uint16_t)bm->stack[bm->stack_size - 1].as_u64;
         bm->stack_size -= 2;
+        bm->ip += 1;
       }break;
 
     case INST_WRITE32:{
@@ -601,6 +607,7 @@ Err bm_execute_inst(Bm *bm)
         }
          *(uint32_t*)&bm->memory[addr] =  (uint32_t)bm->stack[bm->stack_size - 1].as_u64;
          bm->stack_size -= 2;
+         bm->ip += 1;
        }break;
 
     case INST_WRITE64:{
@@ -613,6 +620,7 @@ Err bm_execute_inst(Bm *bm)
         }
          *(uint64_t*)&bm->memory[addr] =  bm->stack[bm->stack_size - 1].as_u64;
          bm->stack_size -= 2;
+         bm->ip += 1;
        }break;
 
     case NUMBER_OF_INSTS:
