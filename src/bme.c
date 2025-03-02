@@ -94,11 +94,11 @@ static Err bm_dump_memory(Bm *bm)
     uint64_t count = bm->stack[bm->stack_size - 1].as_u64;
 
     if(addr >= BM_MEMORY_CAPACITY){
-        return BM_ILLEGAL_MEMORY_ACCESS;
+        return ERR_ILLEGAL_MEMORY_ACCESS;
     }
  
     if( addr + count < addr || addr + count >= BM_MEMORY_CAPACITY){
-        return BM_ILLEGAL_MEMORY_ACCESS;
+        return ERR_ILLEGAL_MEMORY_ACCESS;
     }
 
     for (uint64_t i = 0; i < count; ++i)

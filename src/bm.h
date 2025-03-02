@@ -5,25 +5,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
 #include <errno.h>
 #include <ctype.h>
 #include <inttypes.h>
-#include"stdbool.h"
 
-#define ARRAY_SIZE(xs) (sizeof(xs) / sizeof((xs)[0]))
 #define BM_STACK_CAPACITY 1024
 #define BM_PROGRAM_CAPACITY 1024
 #define BM_NATIVES_CAPACITY 1024
-#define LABEL_CAPACITY 1024
-#define DEFERRED_OPERANDS_CAPACITY 1024
-#define NUMBER_LITERAL_CAPACITY 1024
 #define BM_MEMORY_CAPACITY (640 * 1000)
 
+#define BASM_LABEL_CAPACITY 1024
+#define BASM_DEFERRED_OPERANDS_CAPACITY 1024
 #define BASM_COMMENT_SYMBOL ';'
 #define BASM_PP_SYMBOL '%'
 #define BASM_MAX_INCLUDE_LEVEL 69
-
+#define BASM_ARENA_CAPACITY (1000 * 1000 * 1000)
 
 typedef struct {
     size_t count;
@@ -32,14 +30,12 @@ typedef struct {
 
 #define SV_FORMAT(sv) (int) sv.count, sv.data
 
-String_View cstr_as_sv(const char *cstr);
+String_View sv_from_cstr(const char *cstr);
 String_View sv_trim_left(String_View sv);
 String_View sv_trim_right(String_View sv);
 String_View sv_trim(String_View sv);
 String_View sv_chop_by_delim(String_View *sv, char delim);
-int sv_eq(String_View a, String_View b);
-int sv_to_int(String_View sv);
-String_View sv_slurp_file(String_View file_path);
+bool sv_eq(String_View a, String_View b);
 
 typedef enum {
     ERR_OK = 0,
@@ -48,8 +44,8 @@ typedef enum {
     ERR_ILLEGAL_INST,
     ERR_ILLEGAL_INST_ACCESS,
     ERR_ILLEGAL_OPERAND,
+    ERR_ILLEGAL_MEMORY_ACCESS,
     ERR_DIV_BY_ZERO,
-    BM_ILLEGAL_MEMORY_ACCESS,
 } Err;
 
 const char *err_as_cstr(Err err);
@@ -79,6 +75,12 @@ typedef enum {
     INST_HALT,
     INST_NOT,
     INST_GEF,
+    INST_ANDB,
+    INST_ORB,
+    INST_XOR,
+    INST_SHR,
+    INST_SHL,
+    INST_NOTB,
     INST_READ8,
     INST_READ16,
     INST_READ32,
@@ -91,8 +93,8 @@ typedef enum {
 } Inst_Type;
 
 const char *inst_name(Inst_Type type);
-int inst_has_operand(Inst_Type type);
-int inst_by_name(String_View name, Inst_Type *output);
+bool inst_has_operand(Inst_Type type);
+bool inst_by_name(String_View name, Inst_Type *output);
 
 typedef uint64_t Inst_Addr;
 typedef uint64_t Memory_Addr;
@@ -140,6 +142,9 @@ void bm_load_program_from_memory(Bm *bm, Inst *program, size_t program_size);
 void bm_load_program_from_file(Bm *bm, const char *file_path);
 void bm_save_program_to_file(const Bm *bm, const char *file_path);
 
+// TODO: rename the notion of a "label" to "binding"
+// So it will cause the renaming of `%label` directive to `%bind`
+// which IMO makes more sense.
 typedef struct {
     String_View name;
     Word word;
@@ -151,110 +156,125 @@ typedef struct {
 } Deferred_Operand;
 
 typedef struct {
-    Label labels[LABEL_CAPACITY];
+    Label labels[BASM_LABEL_CAPACITY];
     size_t labels_size;
-    Deferred_Operand deferred_operands[DEFERRED_OPERANDS_CAPACITY];
+    Deferred_Operand deferred_operands[BASM_DEFERRED_OPERANDS_CAPACITY];
     size_t deferred_operands_size;
+    char arena[BASM_ARENA_CAPACITY];
+    size_t arena_size;
 } Basm;
 
-int basm_resolve_label(const Basm *basm, String_View name, Word *output);
-int basm_bind_label(Basm *basm, String_View name, Word word);
+void *basm_alloc(Basm *basm, size_t size);
+String_View basm_slurp_file(Basm *basm, String_View file_path);
+bool basm_resolve_label(const Basm *basm, String_View name, Word *output);
+bool basm_bind_label(Basm *basm, String_View name, Word word);
 void basm_push_deferred_operand(Basm *basm, Inst_Addr addr, String_View label);
+bool basm_number_literal_as_word(Basm *basm, String_View sv, Word *output);
 
-void bm_translate_source(Bm *bm, Basm *basm, String_View input_file_path, size_t level);
-
-int number_literal_as_word(String_View sv, Word *output);
+void basm_translate_source(Bm *bm, Basm *basm, String_View input_file_path, size_t level);
 
 #endif  // BM_H_
 
 #ifdef BM_IMPLEMENTATION
 
-int inst_has_operand(Inst_Type type)
+bool inst_has_operand(Inst_Type type)
 {
     switch (type) {
-    case INST_NOP:         return false;
-    case INST_PUSH:        return true;
-    case INST_DROP:        return false;
-    case INST_DUP:         return true;
-    case INST_PLUSI:       return false;
-    case INST_MINUSI:      return false;
-    case INST_MULTI:       return false;
-    case INST_DIVI:        return false;
-    case INST_PLUSF:       return false;
-    case INST_MINUSF:      return false;
-    case INST_MULTF:       return false;
-    case INST_DIVF:        return false;
-    case INST_JMP:         return true;
-    case INST_JMP_IF:      return true;
-    case INST_EQ:          return false;
-    case INST_HALT:        return false;
-    case INST_SWAP:        return true;
-    case INST_NOT:         return false;
-    case INST_GEF:         return false;
-    case INST_RET:         return false;
-    case INST_CALL:        return true;
-    case INST_NATIVE:      return true;
-    case INST_READ8:       return false;
-    case INST_READ16:      return false;
-    case INST_READ32:      return false;
-    case INST_READ64:      return false;
-    case INST_WRITE8:      return false;
-    case INST_WRITE16:     return false;
-    case INST_WRITE32:     return false;
-    case INST_WRITE64:     return false;
+    case INST_NOP:     return false;
+    case INST_PUSH:    return true;
+    case INST_DROP:    return false;
+    case INST_DUP:     return true;
+    case INST_PLUSI:   return false;
+    case INST_MINUSI:  return false;
+    case INST_MULTI:   return false;
+    case INST_DIVI:    return false;
+    case INST_PLUSF:   return false;
+    case INST_MINUSF:  return false;
+    case INST_MULTF:   return false;
+    case INST_DIVF:    return false;
+    case INST_JMP:     return true;
+    case INST_JMP_IF:  return true;
+    case INST_EQ:      return false;
+    case INST_HALT:    return false;
+    case INST_SWAP:    return true;
+    case INST_NOT:     return false;
+    case INST_GEF:     return false;
+    case INST_RET:     return false;
+    case INST_CALL:    return true;
+    case INST_NATIVE:  return true;
+    case INST_ANDB:    return false;
+    case INST_ORB:     return false;
+    case INST_XOR:     return false;
+    case INST_SHR:     return false;
+    case INST_SHL:     return false;
+    case INST_NOTB:    return false;
+    case INST_READ8:   return false;
+    case INST_READ16:  return false;
+    case INST_READ32:  return false;
+    case INST_READ64:  return false;
+    case INST_WRITE8:  return false;
+    case INST_WRITE16: return false;
+    case INST_WRITE32: return false;
+    case INST_WRITE64: return false;
     case NUMBER_OF_INSTS:
-    default: assert(0 && "inst_has_operand: unreachable");
+    default: assert(false && "inst_has_operand: unreachable");
         exit(1);
     }
 }
 
-int inst_by_name(String_View name, Inst_Type *output)
+bool inst_by_name(String_View name, Inst_Type *output)
 {
     for (Inst_Type type = (Inst_Type) 0; type < NUMBER_OF_INSTS; type += 1) {
-        if (sv_eq(cstr_as_sv(inst_name(type)), name)) {
+        if (sv_eq(sv_from_cstr(inst_name(type)), name)) {
             *output = type;
-            return 1;
+            return true;
         }
     }
 
-    return 0;
+    return false;
 }
 
 const char *inst_name(Inst_Type type)
 {
     switch (type) {
-    case INST_NOP:         return "nop";
-    case INST_PUSH:        return "push";
-    case INST_DROP:        return "drop";
-    case INST_DUP:         return "dup";
-    case INST_PLUSI:       return "plusi";
-    case INST_MINUSI:      return "minusi";
-    case INST_MULTI:       return "multi";
-    case INST_DIVI:        return "divi";
-    case INST_PLUSF:       return "plusf";
-    case INST_MINUSF:      return "minusf";
-    case INST_MULTF:       return "multf";
-    case INST_DIVF:        return "divf";
-    case INST_JMP:         return "jmp";
-    case INST_JMP_IF:      return "jmp_if";
-    case INST_EQ:          return "eq";
-    case INST_HALT:        return "halt";
-    case INST_SWAP:        return "swap";
-    case INST_NOT:         return "not";
-    case INST_GEF:         return "gef";
-    case INST_RET:         return "ret";
-    case INST_CALL:        return "call";
-    case INST_NATIVE:      return "native";
-    case INST_READ8:       return "read8";
-    case INST_READ16:      return "read16";
-    case INST_READ32:      return "read32";
-    case INST_READ64:      return "read64";
-    case INST_WRITE8:      return "write8";
-    case INST_WRITE16:     return "write16";
-    case INST_WRITE32:     return "write32";
-    case INST_WRITE64:     return "write64";
+    case INST_NOP:     return "nop";
+    case INST_PUSH:    return "push";
+    case INST_DROP:    return "drop";
+    case INST_DUP:     return "dup";
+    case INST_PLUSI:   return "plusi";
+    case INST_MINUSI:  return "minusi";
+    case INST_MULTI:   return "multi";
+    case INST_DIVI:    return "divi";
+    case INST_PLUSF:   return "plusf";
+    case INST_MINUSF:  return "minusf";
+    case INST_MULTF:   return "multf";
+    case INST_DIVF:    return "divf";
+    case INST_JMP:     return "jmp";
+    case INST_JMP_IF:  return "jmp_if";
+    case INST_EQ:      return "eq";
+    case INST_HALT:    return "halt";
+    case INST_SWAP:    return "swap";
+    case INST_NOT:     return "not";
+    case INST_GEF:     return "gef";
+    case INST_RET:     return "ret";
+    case INST_CALL:    return "call";
+    case INST_NATIVE:  return "native";
+    case INST_ANDB:    return "andb";
+    case INST_ORB:     return "orb";
+    case INST_XOR:     return "xor";
+    case INST_SHR:     return "shr";
+    case INST_SHL:     return "shl";
+    case INST_NOTB:    return "notb";
+    case INST_READ8:   return "read8";
+    case INST_READ16:  return "read16";
+    case INST_READ32:  return "read32";
+    case INST_READ64:  return "read64";
+    case INST_WRITE8:  return "write8";
+    case INST_WRITE16: return "write16";
+    case INST_WRITE32: return "write32";
+    case INST_WRITE64: return "write64";
     case NUMBER_OF_INSTS:
-    default: assert(0 && "inst_name: unreachable");
+    default: assert(false && "inst_name: unreachable");
         exit(1);
     }
 }
@@ -274,12 +294,12 @@ const char *err_as_cstr(Err err)
         return "ERR_ILLEGAL_OPERAND";
     case ERR_ILLEGAL_INST_ACCESS:
         return "ERR_ILLEGAL_INST_ACCESS";
-        case BM_ILLEGAL_MEMORY_ACCESS:
-        return "BM_ILLEGAL_MEMORY_ACCESS";
     case ERR_DIV_BY_ZERO:
         return "ERR_DIV_BY_ZERO";
+    case ERR_ILLEGAL_MEMORY_ACCESS:
+        return "ERR_ILLEGAL_MEMORY_ACCESS";
     default:
-        assert(0 && "err_as_cstr: Unreachable");
+        assert(false && "err_as_cstr: Unreachable");
         exit(1);
     }
 }
@@ -518,109 +538,164 @@ Err bm_execute_inst(Bm *bm)
         bm->ip += 1;
         break;
 
-    case INST_READ8:{
-        if(bm->stack_size > 1){
+    case INST_ANDB:
+        if (bm->stack_size < 2) {
             return ERR_STACK_UNDERFLOW;
         }
-        Memory_Addr addr = bm->stack[bm->stack_size - 1].as_u64;
-        if(addr >= BM_MEMORY_CAPACITY){
-            return BM_ILLEGAL_MEMORY_ACCESS;
+
+        bm->stack[bm->stack_size - 2].as_u64 = bm->stack[bm->stack_size - 2].as_u64 & bm->stack[bm->stack_size - 1].as_u64;
+        bm->stack_size -= 1;
+        bm->ip += 1;
+        break;
+
+    case INST_ORB:
+        if (bm->stack_size < 2) {
+            return ERR_STACK_UNDERFLOW;
+        }
+
+        bm->stack[bm->stack_size - 2].as_u64 = bm->stack[bm->stack_size - 2].as_u64 | bm->stack[bm->stack_size - 1].as_u64;
+        bm->stack_size -= 1;
+        bm->ip += 1;
+        break;
+
+    case INST_XOR:
+        if (bm->stack_size < 2) {
+            return ERR_STACK_UNDERFLOW;
+        }
+
+        bm->stack[bm->stack_size - 2].as_u64 = bm->stack[bm->stack_size - 2].as_u64 ^ bm->stack[bm->stack_size - 1].as_u64;
+        bm->stack_size -= 1;
+        bm->ip += 1;
+        break;
+
+    case INST_SHR:
+        if (bm->stack_size < 2) {
+            return ERR_STACK_UNDERFLOW;
+        }
+
+        bm->stack[bm->stack_size - 2].as_u64 = bm->stack[bm->stack_size - 2].as_u64 >> bm->stack[bm->stack_size - 1].as_u64;
+        bm->stack_size -= 1;
+        bm->ip += 1;
+        break;
+
+    case INST_SHL:
+        if (bm->stack_size < 2) {
+            return ERR_STACK_UNDERFLOW;
+        }
+
+        bm->stack[bm->stack_size - 2].as_u64 = bm->stack[bm->stack_size - 2].as_u64 << bm->stack[bm->stack_size - 1].as_u64;
+        bm->stack_size -= 1;
+        bm->ip += 1;
+        break;
+
+    case INST_NOTB:
+        if (bm->stack_size < 1) {
+            return ERR_STACK_UNDERFLOW;
+        }
+
+        bm->stack[bm->stack_size - 1].as_u64 = ~bm->stack[bm->stack_size - 1].as_u64;
+        bm->ip += 1;
+        break;
+
+    case INST_READ8: {
+        if (bm->stack_size < 1) {
+            return ERR_STACK_UNDERFLOW;
+        }
+        const Memory_Addr addr = bm->stack[bm->stack_size - 1].as_u64;
+        if (addr >= BM_MEMORY_CAPACITY) {
+            return ERR_ILLEGAL_MEMORY_ACCESS;
         }
         bm->stack[bm->stack_size - 1].as_u64 = bm->memory[addr];
         bm->ip += 1;
-    }
-    break;
+    } break;
 
-    case INST_READ16:{
-        if(bm->stack_size > 1){
-         return ERR_STACK_UNDERFLOW;
+    case INST_READ16: {
+        if (bm->stack_size < 1) {
+            return ERR_STACK_UNDERFLOW;
         }
-        Memory_Addr addr = bm->stack[bm->stack_size - 1].as_u64;
-        if(addr >= BM_MEMORY_CAPACITY - 1){
-            return BM_ILLEGAL_MEMORY_ACCESS;
+        const Memory_Addr addr = bm->stack[bm->stack_size - 1].as_u64;
+        if (addr >= BM_MEMORY_CAPACITY - 1) {
+            return ERR_ILLEGAL_MEMORY_ACCESS;
         }
         bm->stack[bm->stack_size - 1].as_u64 = *(uint16_t*)&bm->memory[addr];
         bm->ip += 1;
-    }
-    break;
-    case INST_READ32:{
-        if(bm->stack_size > 1){
-         return ERR_STACK_UNDERFLOW;
+    } break;
+
+    case INST_READ32: {
+        if (bm->stack_size < 1) {
+            return ERR_STACK_UNDERFLOW;
         }
-        Memory_Addr addr = bm->stack[bm->stack_size - 1].as_u64;
-        if(addr >= BM_MEMORY_CAPACITY - 3){
-            return BM_ILLEGAL_MEMORY_ACCESS;
+        const Memory_Addr addr = bm->stack[bm->stack_size - 1].as_u64;
+        if (addr >= BM_MEMORY_CAPACITY - 3) {
+            return ERR_ILLEGAL_MEMORY_ACCESS;
         }
         bm->stack[bm->stack_size - 1].as_u64 = *(uint32_t*)&bm->memory[addr];
         bm->ip += 1;
-    }
-    break;
+    } break;
 
-    case INST_READ64:{
-        if(bm->stack_size > 1){
-         return ERR_STACK_UNDERFLOW;
+    case INST_READ64: {
+        if (bm->stack_size < 1) {
+            return ERR_STACK_UNDERFLOW;
         }
-        Memory_Addr addr = bm->stack[bm->stack_size - 1].as_u64;
-        if(addr >= BM_MEMORY_CAPACITY - 7){
-            return BM_ILLEGAL_MEMORY_ACCESS;
+        const Memory_Addr addr = bm->stack[bm->stack_size - 1].as_u64;
+        if (addr >= BM_MEMORY_CAPACITY - 7) {
+            return ERR_ILLEGAL_MEMORY_ACCESS;
         }
         bm->stack[bm->stack_size - 1].as_u64 = *(uint64_t*)&bm->memory[addr];
         bm->ip += 1;
-    }
-    break;
+    } break;
 
-    case INST_WRITE8:{
-        if(bm->stack_size < 2){
+    case INST_WRITE8: {
+        if (bm->stack_size < 2) {
             return ERR_STACK_UNDERFLOW;
         }
         const Memory_Addr addr = bm->stack[bm->stack_size - 2].as_u64;
-        if(addr >= BM_MEMORY_CAPACITY){
-            return BM_ILLEGAL_MEMORY_ACCESS;
+        if (addr >= BM_MEMORY_CAPACITY) {
+            return ERR_ILLEGAL_MEMORY_ACCESS;
         }
-        
-        bm->memory[addr] = (uint8_t)bm->stack[bm->stack_size - 1].as_u64;
+        bm->memory[addr] = (uint8_t) bm->stack[bm->stack_size - 1].as_u64;
         bm->stack_size -= 2;
         bm->ip += 1;
-    }break;
+    } break;
 
-    case INST_WRITE16:{
-       if(bm->stack_size < 2){
-         return ERR_STACK_UNDERFLOW;
+    case INST_WRITE16: {
+        if (bm->stack_size < 2) {
+            return ERR_STACK_UNDERFLOW;
         }
         const Memory_Addr addr = bm->stack[bm->stack_size - 2].as_u64;
-        if(addr >= BM_MEMORY_CAPACITY - 1){
-        return BM_ILLEGAL_MEMORY_ACCESS;
-       }
-        *(uint16_t*)&bm->memory[addr] = (uint16_t)bm->stack[bm->stack_size - 1].as_u64;
+        if (addr >= BM_MEMORY_CAPACITY - 1) {
+            return ERR_ILLEGAL_MEMORY_ACCESS;
+        }
+        *(uint16_t*)&bm->memory[addr] = (uint16_t) bm->stack[bm->stack_size - 1].as_u64;
         bm->stack_size -= 2;
         bm->ip += 1;
-      }break;
+    } break;
 
-    case INST_WRITE32:{
-        if(bm->stack_size < 2){
-          return ERR_STACK_UNDERFLOW;
-         }
-         const Memory_Addr addr = bm->stack[bm->stack_size - 2].as_u64;
-         if(addr >= BM_MEMORY_CAPACITY - 3){
-         return BM_ILLEGAL_MEMORY_ACCESS;
+    case INST_WRITE32: {
+        if (bm->stack_size < 2) {
+            return ERR_STACK_UNDERFLOW;
         }
-         *(uint32_t*)&bm->memory[addr] =  (uint32_t)bm->stack[bm->stack_size - 1].as_u64;
-         bm->stack_size -= 2;
-         bm->ip += 1;
-       }break;
+        const Memory_Addr addr = bm->stack[bm->stack_size - 2].as_u64;
+        if (addr >= BM_MEMORY_CAPACITY - 3) {
+            return ERR_ILLEGAL_MEMORY_ACCESS;
+        }
+        *(uint32_t*)&bm->memory[addr] = (uint32_t) bm->stack[bm->stack_size - 1].as_u64;
+        bm->stack_size -= 2;
+        bm->ip += 1;
+    } break;
 
-    case INST_WRITE64:{
-        if(bm->stack_size < 2){
-          return ERR_STACK_UNDERFLOW;
-         }
-         const Memory_Addr addr = bm->stack[bm->stack_size - 2].as_u64;
-         if(addr >= BM_MEMORY_CAPACITY - 7){
-         return BM_ILLEGAL_MEMORY_ACCESS;
+    case INST_WRITE64: {
+        if (bm->stack_size < 2) {
+            return ERR_STACK_UNDERFLOW;
         }
-         *(uint64_t*)&bm->memory[addr] =  bm->stack[bm->stack_size - 1].as_u64;
-         bm->stack_size -= 2;
-         bm->ip += 1;
-       }break;
+        const Memory_Addr addr = bm->stack[bm->stack_size - 2].as_u64;
+        if (addr >= BM_MEMORY_CAPACITY - 7) {
+            return ERR_ILLEGAL_MEMORY_ACCESS;
+        }
+        *(uint64_t*)&bm->memory[addr] = bm->stack[bm->stack_size - 1].as_u64;
+        bm->stack_size -= 2;
+        bm->ip += 1;
+    } break;
 
     case NUMBER_OF_INSTS:
     default:
@@ -691,7 +766,7 @@ void bm_load_program_from_file(Bm *bm, const char *file_path)
         exit(1);
     }
 
-    bm->program_size = fread(bm->program, sizeof(bm->program[0]), (size_t)m / sizeof(bm->program[0]), f);
+    bm->program_size = fread(bm->program, sizeof(bm->program[0]), (size_t) m / sizeof(bm->program[0]), f);
 
     if (ferror(f)) {
         fprintf(stderr, "ERROR: Could not consume file %s: %s\n",
@@ -701,6 +776,7 @@ void bm_load_program_from_file(Bm *bm, const char *file_path)
 
     fclose(f);
 }
+
 
 void bm_save_program_to_file(const Bm *bm, const char *file_path)
 {
@@ -722,13 +798,14 @@ void bm_save_program_to_file(const Bm *bm, const char *file_path)
     fclose(f);
 }
 
-String_View cstr_as_sv(const char *cstr)
+String_View sv_from_cstr(const char *cstr)
 {
     return (String_View) {
         .count = strlen(cstr),
         .data = cstr,
     };
 }
+
 
 String_View sv_trim_left(String_View sv)
 {
@@ -784,84 +861,80 @@ String_View sv_chop_by_delim(String_View *sv, char delim)
     return result;
 }
 
-int sv_eq(String_View a, String_View b)
+bool sv_eq(String_View a, String_View b)
 {
     if (a.count != b.count) {
-        return 0;
+        return false;
     } else {
         return memcmp(a.data, b.data, a.count) == 0;
     }
 }
 
-int sv_to_int(String_View sv)
+void *basm_alloc(Basm *basm, size_t size)
 {
-    int result = 0;
+    assert(basm->arena_size + size <= BASM_ARENA_CAPACITY);
 
-    for (size_t i = 0; i < sv.count && isdigit(sv.data[i]); ++i) {
-        result = result * 10 + sv.data[i] - '0';
-    }
-
+    void *result = basm->arena + basm->arena_size;
+    basm->arena_size += size;
     return result;
 }
 
-int basm_resolve_label(const Basm *basm, String_View name, Word *output)
+bool basm_resolve_label(const Basm *basm, String_View name, Word *output)
 {
     for (size_t i = 0; i < basm->labels_size; ++i) {
         if (sv_eq(basm->labels[i].name, name)) {
             *output = basm->labels[i].word;
-            return 1;
+            return true;
         }
     }
 
-    return 0;
+    return false;
 }
 
-int basm_bind_label(Basm *basm, String_View name, Word word)
+bool basm_bind_label(Basm *basm, String_View name, Word word)
 {
-    assert(basm->labels_size < LABEL_CAPACITY);
+    assert(basm->labels_size < BASM_LABEL_CAPACITY);
 
     Word ignore = {0};
     if (basm_resolve_label(basm, name, &ignore)) {
-        return 0;
+        return false;
     }
 
     basm->labels[basm->labels_size++] = (Label) {.name = name, .word = word};
-    return 1;
+    return true;
 }
 
 void basm_push_deferred_operand(Basm *basm, Inst_Addr addr, String_View label)
 {
-    assert(basm->deferred_operands_size < DEFERRED_OPERANDS_CAPACITY);
+    assert(basm->deferred_operands_size < BASM_DEFERRED_OPERANDS_CAPACITY);
     basm->deferred_operands[basm->deferred_operands_size++] =
         (Deferred_Operand) {.addr = addr, .label = label};
 }
 
-int number_literal_as_word(String_View sv, Word *output)
+bool basm_number_literal_as_word(Basm *basm, String_View sv, Word *output)
 {
-    assert(sv.count < NUMBER_LITERAL_CAPACITY);
-    char cstr[NUMBER_LITERAL_CAPACITY + 1];
-    char *endptr = 0;
-
+    char *cstr = basm_alloc(basm, sv.count + 1);
     memcpy(cstr, sv.data, sv.count);
     cstr[sv.count] = '\0';
 
+    char *endptr = 0;
     Word result = {0};
 
     result.as_u64 = strtoull(cstr, &endptr, 10);
     if ((size_t) (endptr - cstr) != sv.count) {
         result.as_f64 = strtod(cstr, &endptr);
         if ((size_t) (endptr - cstr) != sv.count) {
-            return 0;
+            return false;
         }
     }
 
     *output = result;
-    return 1;
+    return true;
 }
 
-void bm_translate_source(Bm *bm, Basm *basm, String_View input_file_path, size_t level)
+void basm_translate_source(Bm *bm, Basm *basm, String_View input_file_path, size_t level)
 {
-    String_View original_source = sv_slurp_file(input_file_path);
+    String_View original_source = basm_slurp_file(basm, input_file_path);
     String_View source = original_source;
 
     bm->program_size = 0;
@@ -879,14 +952,14 @@ void bm_translate_source(Bm *bm, Basm *basm, String_View input_file_path, size_t
             if (token.count > 0 && *token.data == BASM_PP_SYMBOL) {
                 token.count -= 1;
                 token.data  += 1;
-                if (sv_eq(token, cstr_as_sv("label"))) {
+                if (sv_eq(token, sv_from_cstr("label"))) {
                     line = sv_trim(line);
                     String_View label = sv_chop_by_delim(&line, ' ');
                     if (label.count > 0) {
                         line = sv_trim(line);
                         String_View value = sv_chop_by_delim(&line, ' ');
                         Word word = {0};
-                        if (!number_literal_as_word(value, &word)) {
+                        if (!basm_number_literal_as_word(basm, value, &word)) {
                             fprintf(stderr,
                                     "%.*s:%d: ERROR: `%.*s` is not a number",
                                     SV_FORMAT(input_file_path),
@@ -896,7 +969,7 @@ void bm_translate_source(Bm *bm, Basm *basm, String_View input_file_path, size_t
                         }
 
                         if (!basm_bind_label(basm, label, word)) {
-                            // TODO: label redefinition error does not tell where the first label was already defined
+                            // TODO(#51): label redefinition error does not tell where the first label was already defined
                             fprintf(stderr,
                                     "%.*s:%d: ERROR: label `%.*s` is already defined\n",
                                     SV_FORMAT(input_file_path),
@@ -910,7 +983,7 @@ void bm_translate_source(Bm *bm, Basm *basm, String_View input_file_path, size_t
                                 SV_FORMAT(input_file_path), line_number);
                         exit(1);
                     }
-                } else if (sv_eq(token, cstr_as_sv("include"))) {
+                } else if (sv_eq(token, sv_from_cstr("include"))) {
                     line = sv_trim(line);
 
                     if (line.count > 0) {
@@ -925,7 +998,7 @@ void bm_translate_source(Bm *bm, Basm *basm, String_View input_file_path, size_t
                                 exit(1);
                             }
 
-                            bm_translate_source(bm, basm, line, level + 1);
+                            basm_translate_source(bm, basm, line, level + 1);
                         } else {
                             fprintf(stderr,
                                     "%.*s:%d: ERROR: include file path has to be surrounded with quotation marks\n",
@@ -984,7 +1057,8 @@ void bm_translate_source(Bm *bm, Basm *basm, String_View input_file_path, size_t
                                 exit(1);
                             }
 
-                            if (!number_literal_as_word(
+                            if (!basm_number_literal_as_word(
+                                    basm,
                                     operand,
                                     &bm->program[bm->program_size].operand)) {
                                 basm_push_deferred_operand(
@@ -1012,19 +1086,17 @@ void bm_translate_source(Bm *bm, Basm *basm, String_View input_file_path, size_t
                 basm,
                 label,
                 &bm->program[basm->deferred_operands[i].addr].operand)) {
-            // TODO: second pass label resolution errors don't report the location in the source code
+            // TODO(#52): second pass label resolution errors don't report the location in the source code
             fprintf(stderr, "%.*s: ERROR: unknown label `%.*s`\n",
                     SV_FORMAT(input_file_path), SV_FORMAT(label));
             exit(1);
         }
     }
-
-    free((void*) original_source.data);
 }
 
-String_View sv_slurp_file(String_View file_path)
+String_View basm_slurp_file(Basm *basm, String_View file_path)
 {
-    char *file_path_cstr = malloc(file_path.count + 1);
+    char *file_path_cstr = basm_alloc(basm, file_path.count + 1);
     if (file_path_cstr == NULL) {
         fprintf(stderr,
                 "ERROR: Could not allocate memory for the file path `%.*s`: %s\n",
@@ -1055,7 +1127,7 @@ String_View sv_slurp_file(String_View file_path)
         exit(1);
     }
 
-    char *buffer = malloc((size_t)m);
+    char *buffer = basm_alloc(basm, (size_t) m);
     if (buffer == NULL) {
         fprintf(stderr, "ERROR: Could not allocate memory for file: %s\n",
                 strerror(errno));
@@ -1066,10 +1138,9 @@ String_View sv_slurp_file(String_View file_path)
         fprintf(stderr, "ERROR: Could not read file `%s`: %s\n",
                 file_path_cstr, strerror(errno));
         exit(1);
-
     }
 
-    size_t n = fread(buffer, 1, (size_t)m, f);
+    size_t n = fread(buffer, 1, (size_t) m, f);
     if (ferror(f)) {
         fprintf(stderr, "ERROR: Could not read file `%s`: %s\n",
                 file_path_cstr, strerror(errno));
@@ -1077,7 +1148,6 @@ String_View sv_slurp_file(String_View file_path)
     }
 
     fclose(f);
-    free(file_path_cstr);
 
     return (String_View) {
         .count = n,
